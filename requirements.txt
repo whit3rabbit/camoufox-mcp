@@ -1,0 +1,21 @@
+# Core MCP SDK
+mcp>=1.0.0
+
+# Camoufox with GeoIP support (as recommended in docs)
+camoufox[geoip]>=0.4.11
+
+# CAPTCHA solving extension (optional but recommended)
+camoufox-captcha
+
+# Additional useful packages for browser automation
+aiohttp>=3.8.0
+aiofiles>=0.8.0
+pillow>=9.0.0
+uvicorn>=0.17.0 # For running FastMCP
+
+# Development and testing (optional - install with pip install -e ".[dev]")
+pytest>=7.0.0
+pytest-asyncio>=0.21.0 
+# black>=22.0.0
+# flake8>=5.0.0
+# mypy>=1.0.0

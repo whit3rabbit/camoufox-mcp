@@ -1,0 +1,124 @@
+services:
+  camoufox-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: camoufox-mcp:latest
+    container_name: camoufox-mcp-server
+    environment:
+      - DISPLAY=:99
+    volumes:
+      # Mount output directory for persistent storage
+      - ./output:/tmp/camoufox-mcp
+    ports:
+      - "8080:8080"
+    stdin_open: true
+    tty: true
+    command: [
+      "--headless=true",
+      "--humanize", 
+      "--geoip=auto",
+      "--block-webrtc",
+      "--captcha-solver"
+    ]
+    
+  # Development service with source code mounting
+  camoufox-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps  # Use deps stage for development
+    image: camoufox-mcp:dev
+    container_name: camoufox-mcp-dev
+    environment:
+      - DISPLAY=:99
+      - PYTHONPATH=/app
+    volumes:
+      - .:/app
+      - ./output:/tmp/camoufox-mcp
+    ports:
+      - "8081:8080"
+    stdin_open: true
+    tty: true
+    working_dir: /app
+    command: [
+      "python", "camoufox_mcp_server.py",
+      "--headless=true",
+      "--debug",
+      "--humanize",
+      "--geoip=auto"
+    ]
+    
+  # Test service for running pytest
+  camoufox-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps
+    image: camoufox-mcp:test
+    container_name: camoufox-mcp-test
+    environment:
+      - DISPLAY=:99
+      - PYTHONPATH=/app:/home/camoufox/.local/lib/python3.11/site-packages
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: ["python", "-m", "pytest", "-v", "--tb=short"]
+    
+  # SSE server mode for HTTP access
+  camoufox-sse:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: camoufox-mcp:latest
+    container_name: camoufox-mcp-sse
+    environment:
+      - DISPLAY=:99
+    volumes:
+      - ./output:/tmp/camoufox-mcp
+    ports:
+      - "8082:8080"
+    command: [
+      "--port", "8080",
+      "--host", "0.0.0.0",
+      "--headless=true",
+      "--humanize",
+      "--geoip=auto",
+      "--captcha-solver",
+      "--block-webrtc"
+    ]
+
+  # Maximum stealth configuration
+  camoufox-stealth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: camoufox-mcp:latest
+    container_name: camoufox-mcp-stealth
+    environment:
+      - DISPLAY=:99
+    volumes:
+      - ./output:/tmp/camoufox-mcp
+    stdin_open: true
+    tty: true
+    command: [
+      "--headless=virtual",  # Use virtual display
+      "--humanize=2.0",      # Slower, more human-like movements
+      "--geoip=auto",        # Auto-detect IP geolocation
+      "--captcha-solver",    # Enable CAPTCHA solving
+      "--block-webrtc",      # Block WebRTC
+      "--block-images",      # Save bandwidth
+      "--disable-coop",      # Allow CAPTCHA iframe access
+      "--os=windows",        # Specific OS fingerprint
+      "--locale=en-US",      # Specific locale
+      "--enable-cache",      # Enable navigation cache
+      "--debug"              # Verbose logging
+    ]
+
+networks:
+  default:
+    name: camoufox-mcp-network
+
+volumes:
+  output:
+    driver: local
