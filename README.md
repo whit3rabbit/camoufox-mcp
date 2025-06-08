@@ -50,27 +50,22 @@ pip install -e .
 
 ## Configuration
 
-### MCP Client Configuration
+This MCP server can be integrated with various AI assistants and IDEs that support the Model Context Protocol. Below are specific instructions for each major IDE/client.
 
-#### VS Code / Cursor / Windsurf
+### Claude Desktop
 
-```json
-{
-  "mcpServers": {
-    "camoufox": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", 
-        "camoufox-mcp",
-        "--headless",
-        "--captcha-solver"
-      ]
-    }
-  }
-}
-```
+Claude Desktop stores its MCP configuration in a JSON file. Here's how to configure it:
 
-#### Claude Desktop
+**Location of configuration file:**
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+**Setup Steps:**
+1. Open Claude Desktop
+2. Go to Claude menu → Settings (not the in-app settings)
+3. Click "Developer" in the left sidebar
+4. Click "Edit Config" to open the configuration file
+5. Add the following configuration:
 
 ```json
 {
@@ -79,25 +74,7 @@ pip install -e .
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
-        "camoufox-mcp",
-        "--headless"
-      ]
-    }
-  }
-}
-```
-
-### Local Python Configuration
-
-If running locally without Docker:
-
-```json
-{
-  "mcpServers": {
-    "camoufox": {
-      "command": "python",
-      "args": [
-        "/path/to/camoufox-mcp/camoufox_mcp_server.py",
+        "followthewhit3rabbit/camoufox-mcp:latest",
         "--headless",
         "--captcha-solver"
       ]
@@ -105,6 +82,210 @@ If running locally without Docker:
   }
 }
 ```
+
+**For local Python installation:**
+```json
+{
+  "mcpServers": {
+    "camoufox": {
+      "command": "python",
+      "args": [
+        "/absolute/path/to/camoufox-mcp/camoufox_mcp_server.py",
+        "--headless",
+        "--captcha-solver"
+      ]
+    }
+  }
+}
+```
+
+6. Save the file and restart Claude Desktop
+7. Look for the hammer/tools icon in the bottom of the chat interface
+
+### Cursor IDE
+
+Cursor supports MCP servers through configuration files. You can set them up globally or per-project.
+
+**Global Configuration:**
+1. Create or edit `~/.cursor/mcp.json` (all projects)
+
+**Project-Specific Configuration:**
+1. Create or edit `.cursor/mcp.json` in your project root (specific to this project)
+
+**Configuration:**
+```json
+{
+  "mcpServers": {
+    "camoufox": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "followthewhit3rabbit/camoufox-mcp:latest",
+        "--headless",
+        "--captcha-solver"
+      ]
+    }
+  }
+}
+```
+
+**Setup Steps:**
+1. Open Cursor IDE
+2. Go to Settings → MCP Servers (or Settings → Cursor Settings → MCP)
+3. Enable MCP servers if not already enabled
+4. Click "Add new MCP server" or edit the configuration file directly
+5. Add the configuration above
+6. Look for a green status indicator showing the server is connected
+
+### Windsurf IDE
+
+Windsurf (by Codeium) has built-in MCP support through the Cascade assistant.
+
+**Setup Steps:**
+1. Open Windsurf
+2. Navigate to the Cascade assistant panel
+3. Click the hammer (MCP) icon at the bottom
+4. Click "Configure" to open the configuration interface
+5. Add the following configuration:
+
+```json
+{
+  "mcpServers": {
+    "camoufox": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "followthewhit3rabbit/camoufox-mcp:latest",
+        "--headless",
+        "--captcha-solver"
+      ]
+    }
+  }
+}
+```
+
+6. Save the configuration
+7. Click "Refresh" in the MCP panel
+8. The server status should show as green/connected
+
+### Cline (VS Code Extension)
+
+Cline is a VS Code extension that supports MCP servers.
+
+**Setup Steps:**
+1. Install Cline extension in VS Code
+2. Open the Cline extension panel
+3. Click the "MCP Servers" icon
+4. Click "Configure MCP Servers"
+5. Add the following configuration:
+
+```json
+{
+  "mcpServers": {
+    "camoufox": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "followthewhit3rabbit/camoufox-mcp:latest",
+        "--headless",
+        "--captcha-solver"
+      ]
+    }
+  }
+}
+```
+
+6. Save the configuration file
+7. Cline should automatically reload and show a green status for the server
+
+### Claude Code (CLI)
+
+Claude Code supports MCP servers through command-line configuration.
+
+**Setup Steps:**
+1. Install Claude Code CLI
+2. Add the MCP server using the command line:
+
+```bash
+# Add with default (local) scope
+claude mcp add camoufox-server -- docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest --headless --captcha-solver
+
+# Add with project scope (shared with team)
+claude mcp add camoufox-server -s project -- docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest --headless --captcha-solver
+
+# Add with user scope (available across all your projects)
+claude mcp add camoufox-server -s user -- docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest --headless --captcha-solver
+```
+
+**Alternative: Direct configuration file editing:**
+Edit `.claude/local/claude_desktop_config.json` or the project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "camoufox": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "followthewhit3rabbit/camoufox-mcp:latest",
+        "--headless",
+        "--captcha-solver"
+      ]
+    }
+  }
+}
+```
+
+3. Check server status: `claude mcp status` or `/mcp` within Claude Code
+4. Restart Claude Code to load the configuration
+
+### VS Code with GitHub Copilot
+
+VS Code with GitHub Copilot Agent Mode supports MCP servers (VS Code 1.99+).
+
+**Setup Steps:**
+1. Ensure VS Code 1.99+ and enable agent mode
+2. Enable MCP support: Set `chat.mcp.enabled` to `true` in settings
+3. Create MCP configuration in one of these locations:
+
+**Workspace settings:** `.vscode/mcp.json`
+```json
+{
+  "mcpServers": {
+    "camoufox": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "followthewhit3rabbit/camoufox-mcp:latest",
+        "--headless",
+        "--captcha-solver"
+      ]
+    }
+  }
+}
+```
+
+**User settings:** Add to `settings.json`
+```json
+{
+  "mcp.servers": {
+    "camoufox": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "followthewhit3rabbit/camoufox-mcp:latest",
+        "--headless",
+        "--captcha-solver"
+      ]
+    }
+  }
+}
+```
+
+4. Restart VS Code
+5. Open GitHub Copilot Chat and enable Agent Mode
+6. The MCP tools should be available in agent interactions
 
 ## Command Line Options
 
