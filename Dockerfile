@@ -3,36 +3,42 @@
 # ------------------------------
 # Base stage with system dependencies
 # ------------------------------
-    FROM python:3.11-slim-bullseye AS base
+FROM python:3.11-slim-bullseye AS base
 
-    # Install system dependencies for Camoufox and virtual display
-    RUN apt-get update && apt-get install -y \
-        # Virtual display for headless operation
-        xvfb \
-        # Firefox/Camoufox dependencies  
-        libgtk-3-0 \
-        libx11-xcb1 \
-        libasound2 \
-        libdbus-glib-1-2 \
-        libxt6 \
-        libpci3 \
-        libxss1 \
-        libgconf-2-4 \
-        # Additional utilities
-        wget \
-        gnupg \
-        ca-certificates \
-        curl \
-        && rm -rf /var/lib/apt/lists/*
+# Install system dependencies for Camoufox and virtual display
+RUN apt-get update && apt-get install -y \
+    # Virtual display for headless operation
+    xvfb \
+    procps \
+    # Firefox/Camoufox dependencies  
+    libgtk-3-0 \
+    libx11-xcb1 \
+    libasound2 \
+    libdbus-glib-1-2 \
+    libxt6 \
+    libpci3 \
+    libxss1 \
+    libgconf-2-4 \
+    # Additional utilities
+    wget \
+    gnupg \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
     
-    # Set environment variables
-    ENV PYTHONUNBUFFERED=1
-    ENV PYTHONDONTWRITEBYTECODE=1
-    ENV DISPLAY=:99
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV DISPLAY=:99
     
-    # Create app directory and non-root user
-    WORKDIR /app
-    RUN useradd -m -u 1000 camoufox && chown -R camoufox:camoufox /app
+# Create app directory and non-root user
+WORKDIR /app
+RUN useradd -m -u 1000 camoufox && \
+    chown -R camoufox:camoufox /app && \
+    # Create and set permissions for Xvfb socket directory
+    mkdir -p /tmp/.X11-unix && \
+    chown -R camoufox:camoufox /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix
     
     # ------------------------------
     # Dependencies stage
@@ -70,25 +76,12 @@
     
     # Copy application code
     COPY --chown=camoufox:camoufox camoufox_mcp_server.py .
+    COPY --chown=camoufox:camoufox docker-entrypoint.sh .
+    RUN chmod +x docker-entrypoint.sh
     
-    # Create output directory
-    RUN mkdir -p /tmp/camoufox-mcp
-    
-    # Setup virtual display startup script
-    RUN echo '#!/bin/bash' > /app/start-xvfb.sh && \
-        echo '# Start virtual display in background if not already running' >> /app/start-xvfb.sh && \
-        echo 'if ! pgrep -x "Xvfb" > /dev/null; then' >> /app/start-xvfb.sh && \
-        echo '    Xvfb :99 -screen 0 1920x1080x24 -ac &' >> /app/start-xvfb.sh && \
-        echo '    export DISPLAY=:99' >> /app/start-xvfb.sh && \
-        echo '    sleep 2' >> /app/start-xvfb.sh && \
-        echo 'fi' >> /app/start-xvfb.sh && \
-        echo 'exec "$@"' >> /app/start-xvfb.sh
-    
-    # Set permissions for the script and change ownership
-    USER root
-    RUN chmod +x /app/start-xvfb.sh && chown camoufox:camoufox /app/start-xvfb.sh
-    USER camoufox
-    
+    # Ensure output dir exists if server writes there by default (can be created by user if needed)
+    # RUN mkdir -p /tmp/camoufox-mcp && chown camoufox:camoufox /tmp/camoufox-mcp
+
     # Expose port for SSE transport (optional)
     EXPOSE 8080
     
@@ -96,8 +89,13 @@
     HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
         CMD python -c "import camoufox; print('Camoufox OK')" || exit 1
     
-    # Set entrypoint to handle virtual display
-    ENTRYPOINT ["/app/start-xvfb.sh", "python", "camoufox_mcp_server.py"]
-    
-    # Default arguments - run in headless mode with stealth features
-    CMD ["--headless=true", "--humanize", "--geoip=auto", "--block-webrtc"]
+    # Entrypoint to run the server using xvfb-run
+    # This allows passing arguments from 'docker run' to the camoufox_mcp_server.py script.
+    # xvfb-run handles finding a free display number and starting Xvfb.
+    # Server arguments for Xvfb can be specified with --server-args.
+    ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
+    # Default command (arguments to ENTRYPOINT).
+    # Can be overridden by arguments passed to 'docker run'.
+    # For example, 'docker run <image> --help' will pass '--help' to the script.
+    CMD []
