@@ -13,50 +13,19 @@ A Model Context Protocol (MCP) server that provides stealth browser automation c
 
 ## Requirements
 
-- Python 3.9 or newer
-- Docker (recommended for deployment)
-- MCP-compatible client (VS Code, Cursor, Claude Desktop, etc.)
+- Docker (recommended for usage)
+- MCP-compatible client (Claude Desktop, Cursor, Windsurf, etc.)
+- Python 3.9+ (only for development)
 
-## Installation
+## Quick Start with MCP
 
-### Option 1: Docker (Recommended)
-
-```bash
-# Pull the pre-built image (when available)
-docker pull camoufox/mcp-server
-
-# Or build locally
-git clone https://github.com/whit3rabbit/camoufox-mcp
-cd camoufox-mcp
-docker build -t camoufox-mcp .
-```
-
-### Option 2: Local Python Installation
-
-```bash
-git clone https://github.com/whit3rabbit/camoufox-mcp
-cd camoufox-mcp
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Or install as package
-pip install -e .
-```
-
-## Configuration
-
-This MCP server can be integrated with various AI assistants and IDEs that support the Model Context Protocol. Below are specific instructions for each major IDE/client.
+The Camoufox MCP server communicates via **STDIO** (stdin/stdout) by default, which is the standard transport for MCP servers. This allows seamless integration with AI assistants and IDEs.
 
 ### Claude Desktop
 
-Claude Desktop stores its MCP configuration in a JSON file. Here's how to configure it:
+Claude Desktop stores its MCP configuration in a JSON file:
 
-**Location of configuration file:**
+**Configuration file location:**
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
@@ -74,24 +43,11 @@ Claude Desktop stores its MCP configuration in a JSON file. Here's how to config
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
+        "-v", "/tmp/camoufox-output:/tmp/camoufox-mcp",
         "followthewhit3rabbit/camoufox-mcp:latest",
-        "--headless",
-        "--captcha-solver"
-      ]
-    }
-  }
-}
-```
-
-**For local Python installation:**
-```json
-{
-  "mcpServers": {
-    "camoufox": {
-      "command": "python",
-      "args": [
-        "/absolute/path/to/camoufox-mcp/camoufox_mcp_server.py",
-        "--headless",
+        "--headless=true",
+        "--humanize",
+        "--geoip=auto",
         "--captcha-solver"
       ]
     }
@@ -101,18 +57,13 @@ Claude Desktop stores its MCP configuration in a JSON file. Here's how to config
 
 6. Save the file and restart Claude Desktop
 7. Look for the hammer/tools icon in the bottom of the chat interface
+8. The Camoufox tools should appear in the tools list
 
 ### Cursor IDE
 
-Cursor supports MCP servers through configuration files. You can set them up globally or per-project.
+**Global Configuration:** `~/.cursor/mcp.json`  
+**Project Configuration:** `.cursor/mcp.json` in your project root
 
-**Global Configuration:**
-1. Create or edit `~/.cursor/mcp.json` (all projects)
-
-**Project-Specific Configuration:**
-1. Create or edit `.cursor/mcp.json` in your project root (specific to this project)
-
-**Configuration:**
 ```json
 {
   "mcpServers": {
@@ -120,8 +71,10 @@ Cursor supports MCP servers through configuration files. You can set them up glo
       "command": "docker",
       "args": [
         "run", "-i", "--rm",
+        "-v", "./camoufox-output:/tmp/camoufox-mcp",
         "followthewhit3rabbit/camoufox-mcp:latest",
-        "--headless",
+        "--headless=true",
+        "--humanize",
         "--captcha-solver"
       ]
     }
@@ -129,620 +82,323 @@ Cursor supports MCP servers through configuration files. You can set them up glo
 }
 ```
 
-**Setup Steps:**
-1. Open Cursor IDE
-2. Go to Settings → MCP Servers (or Settings → Cursor Settings → MCP)
-3. Enable MCP servers if not already enabled
-4. Click "Add new MCP server" or edit the configuration file directly
-5. Add the configuration above
-6. Look for a green status indicator showing the server is connected
-
 ### Windsurf IDE
 
-Windsurf (by Codeium) has built-in MCP support through the Cascade assistant.
-
-**Setup Steps:**
 1. Open Windsurf
 2. Navigate to the Cascade assistant panel
 3. Click the hammer (MCP) icon at the bottom
 4. Click "Configure" to open the configuration interface
-5. Add the following configuration:
-
-```json
-{
-  "mcpServers": {
-    "camoufox": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "followthewhit3rabbit/camoufox-mcp:latest",
-        "--headless",
-        "--captcha-solver"
-      ]
-    }
-  }
-}
-```
-
-6. Save the configuration
-7. Click "Refresh" in the MCP panel
-8. The server status should show as green/connected
+5. Add the configuration above
+6. Save and refresh the MCP panel
 
 ### Cline (VS Code Extension)
 
-Cline is a VS Code extension that supports MCP servers.
-
-**Setup Steps:**
 1. Install Cline extension in VS Code
 2. Open the Cline extension panel
-3. Click the "MCP Servers" icon
-4. Click "Configure MCP Servers"
-5. Add the following configuration:
-
-```json
-{
-  "mcpServers": {
-    "camoufox": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "followthewhit3rabbit/camoufox-mcp:latest",
-        "--headless",
-        "--captcha-solver"
-      ]
-    }
-  }
-}
-```
-
-6. Save the configuration file
-7. Cline should automatically reload and show a green status for the server
+3. Click "MCP Servers" → "Configure MCP Servers"
+4. Add the configuration above
+5. Cline will automatically reload with the server connected
 
 ### Claude Code (CLI)
 
-Claude Code supports MCP servers through command-line configuration.
+```bash
+# Add MCP server with user scope (available across all projects)
+claude mcp add camoufox-server -s user -- \
+  docker run -i --rm \
+  -v /tmp/camoufox-output:/tmp/camoufox-mcp \
+  followthewhit3rabbit/camoufox-mcp:latest \
+  --headless=true --humanize --captcha-solver
 
-**Setup Steps:**
-1. Install Claude Code CLI
-2. Add the MCP server using the command line:
+# Check server status
+claude mcp status
+```
+
+## Configuration Options
+
+### Basic Docker Usage
 
 ```bash
-# Add with default (local) scope
-claude mcp add camoufox-server -- docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest --headless --captcha-solver
+# Minimal configuration
+docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest --headless=true
 
-# Add with project scope (shared with team)
-claude mcp add camoufox-server -s project -- docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest --headless --captcha-solver
-
-# Add with user scope (available across all your projects)
-claude mcp add camoufox-server -s user -- docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest --headless --captcha-solver
-```
-
-**Alternative: Direct configuration file editing:**
-Edit `.claude/local/claude_desktop_config.json` or the project's `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "camoufox": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "followthewhit3rabbit/camoufox-mcp:latest",
-        "--headless",
-        "--captcha-solver"
-      ]
-    }
-  }
-}
-```
-
-3. Check server status: `claude mcp status` or `/mcp` within Claude Code
-4. Restart Claude Code to load the configuration
-
-### VS Code with GitHub Copilot
-
-VS Code with GitHub Copilot Agent Mode supports MCP servers (VS Code 1.99+).
-
-**Setup Steps:**
-1. Ensure VS Code 1.99+ and enable agent mode
-2. Enable MCP support: Set `chat.mcp.enabled` to `true` in settings
-3. Create MCP configuration in one of these locations:
-
-**Workspace settings:** `.vscode/mcp.json`
-```json
-{
-  "mcpServers": {
-    "camoufox": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "followthewhit3rabbit/camoufox-mcp:latest",
-        "--headless",
-        "--captcha-solver"
-      ]
-    }
-  }
-}
-```
-
-**User settings:** Add to `settings.json`
-```json
-{
-  "mcp.servers": {
-    "camoufox": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm",
-        "followthewhit3rabbit/camoufox-mcp:latest",
-        "--headless",
-        "--captcha-solver"
-      ]
-    }
-  }
-}
-```
-
-4. Restart VS Code
-5. Open GitHub Copilot Chat and enable Agent Mode
-6. The MCP tools should be available in agent interactions
-
-## Command Line Options
-
-```bash
-# Basic usage
-python camoufox_mcp_server.py --headless
-
-# With CAPTCHA solving
-python camoufox_mcp_server.py --headless --captcha-solver
-
-# With proxy
-python camoufox_mcp_server.py --headless --proxy "http://proxy:8080"
-
-# Custom viewport
-python camoufox_mcp_server.py --headless --viewport "1920x1080"
-
-# SSE server mode
-python camoufox_mcp_server.py --port 8080 --host 0.0.0.0
-
-# All options
-python camoufox_mcp_server.py \
-  --headless \
+# With all stealth features
+docker run -i --rm \
+  -v /tmp/camoufox-output:/tmp/camoufox-mcp \
+  followthewhit3rabbit/camoufox-mcp:latest \
+  --headless=true \
+  --humanize \
+  --geoip=auto \
   --captcha-solver \
-  --proxy "http://proxy:8080" \
-  --user-agent "Custom User Agent" \
-  --viewport "1920x1080" \
-  --output-dir "/tmp/camoufox-output" \
-  --debug
+  --block-webrtc
 ```
 
-### Available Options
+### Command Line Options
 
-- `--headless` / `--no-headless`: Run browser in headless/headed mode (default: headless)
-- `--captcha-solver`: Enable CAPTCHA solving capabilities
-- `--proxy`: Proxy server (e.g., `http://proxy:8080`)
-- `--user-agent`: Custom user agent string
-- `--viewport`: Browser viewport size (e.g., `1920x1080`)
-- `--output-dir`: Directory for screenshots and files (default: `/tmp/camoufox-mcp`)
-- `--port`: Port for SSE transport (enables HTTP mode)
-- `--host`: Host to bind server to (default: `localhost`)
-- `--debug`: Enable debug logging
+- `--headless` - Run browser in headless mode (values: `true`, `false`, `virtual`)
+- `--humanize` - Enable human-like cursor movement (optional: max duration in seconds)
+- `--no-humanize` - Disable human-like cursor movement
+- `--geoip` - IP address for geolocation or `auto` for auto-detection
+- `--no-geoip` - Disable GeoIP features
+- `--captcha-solver` - Enable CAPTCHA solving capabilities
+- `--proxy` - Proxy server (e.g., `http://user:pass@proxy:8080`)
+- `--user-agent` - Custom user agent string
+- `--window` - Browser window size (e.g., `1920x1080`)
+- `--output-dir` - Directory for screenshots (default: `/tmp/camoufox-mcp`)
+- `--debug` - Enable debug logging
+
+### Advanced Options
+
+```bash
+# With proxy and custom window size
+docker run -i --rm \
+  followthewhit3rabbit/camoufox-mcp:latest \
+  --headless=true \
+  --proxy "http://proxy:8080" \
+  --window "1920x1080"
+
+# Maximum stealth configuration
+docker run -i --rm \
+  -v /tmp/camoufox-output:/tmp/camoufox-mcp \
+  followthewhit3rabbit/camoufox-mcp:latest \
+  --headless=virtual \
+  --humanize=2.0 \
+  --geoip=auto \
+  --captcha-solver \
+  --block-webrtc \
+  --block-images \
+  --disable-coop \
+  --os=windows \
+  --locale=en-US
+```
+
+## Testing Your MCP Server
+
+### Using MCP Inspector
+
+The [MCP Inspector](https://github.com/modelcontextprotocol/inspector) is the official tool for testing and debugging MCP servers. It provides a web UI to interact with your server's tools.
+
+```bash
+# Test the Docker container
+npx @modelcontextprotocol/inspector \
+  docker run -i --rm \
+  followthewhit3rabbit/camoufox-mcp:latest \
+  --headless=true --debug
+
+# The Inspector UI will open at http://localhost:6274
+```
+
+**Inspector Features:**
+- View all available tools and their schemas
+- Test tool calls with custom arguments  
+- Monitor request/response messages
+- Debug communication issues
+
+### Quick Connectivity Test
+
+To verify your MCP server is working correctly:
+
+1. **Check Docker image:**
+   ```bash
+   docker run --rm followthewhit3rabbit/camoufox-mcp:latest --help
+   ```
+
+2. **Test basic tool listing:**
+   ```bash
+   echo '{"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 1}' | \
+   docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest
+   ```
+
+3. **Check client connection:**
+   - In Claude Desktop: Look for the tools icon and verify "camoufox" appears
+   - In Cursor/Windsurf: Check the MCP panel shows a green status
+   - In CLI: Run `claude mcp status` or your IDE's equivalent
+
+### Common Issues
+
+- **"Server not connected"**: Ensure Docker is running and the image is pulled
+- **"No tools available"**: Check the server logs with `--debug` flag
+- **"Permission denied"**: Add volume mount permissions or use different output directory
 
 ## Available Tools
 
 ### Core Browser Tools
 
-#### `browser_navigate`
-Navigate to a URL with stealth capabilities.
-
-**Parameters:**
-- `url` (string): The URL to navigate to
-
-**Example:**
-```json
-{
-  "name": "browser_navigate",
-  "arguments": {
-    "url": "https://example.com"
-  }
-}
-```
-
-#### `browser_click`
-Click on an element using CSS selector.
-
-**Parameters:**
-- `selector` (string): CSS selector for the element
-
-**Example:**
-```json
-{
-  "name": "browser_click", 
-  "arguments": {
-    "selector": "button.login-btn"
-  }
-}
-```
-
-#### `browser_type`
-Type text into an input element.
-
-**Parameters:**
-- `selector` (string): CSS selector for the element
-- `text` (string): Text to type
-
-**Example:**
-```json
-{
-  "name": "browser_type",
-  "arguments": {
-    "selector": "input[name='username']",
-    "text": "myusername"
-  }
-}
-```
-
-#### `browser_get_content`
-Extract text content from the page or specific elements.
-
-**Parameters:**
-- `selector` (string, optional): CSS selector (gets full page if not provided)
-
-**Example:**
-```json
-{
-  "name": "browser_get_content",
-  "arguments": {
-    "selector": ".content"
-  }
-}
-```
-
-#### `browser_screenshot`
-Take a screenshot of the current page.
-
-**Parameters:**
-- `filename` (string, optional): Custom filename for the screenshot
-
-**Example:**
-```json
-{
-  "name": "browser_screenshot",
-  "arguments": {
-    "filename": "login_page.png"
-  }
-}
-```
-
-### CAPTCHA Solving Tools
-
-#### `browser_solve_captcha`
-Solve CAPTCHAs automatically (requires `--captcha-solver` flag).
-
-**Parameters:**
-- `captcha_type` (string, optional): Type of CAPTCHA (`recaptcha`, `hcaptcha`, `turnstile`)
-
-**Example:**
-```json
-{
-  "name": "browser_solve_captcha",
-  "arguments": {
-    "captcha_type": "recaptcha"
-  }
-}
-```
-
-### Utility Tools
-
-#### `browser_close`
-Close the browser and clean up resources.
-
-**Parameters:** None
-
-## Advanced Configuration
-
-### Docker with Custom Options
-
-```bash
-# With proxy and CAPTCHA solving
-docker run -i --rm camoufox-mcp \
-  --headless \
-  --captcha-solver \
-  --proxy "http://proxy:8080"
-
-# With volume mounting for persistent output
-docker run -i --rm \
-  -v /host/output:/tmp/camoufox-mcp \
-  camoufox-mcp --headless
-
-# Port mapping for SSE server
-docker run -i --rm -p 8080:8080 \
-  camoufox-mcp --port 8080 --host 0.0.0.0
-```
-
-### Environment Variables
-
-The Docker container supports these environment variables:
-
-- `CAMOUFOX_HEADLESS`: Set to `false` to run in headed mode
-- `CAMOUFOX_PROXY`: Proxy server URL
-- `CAMOUFOX_OUTPUT_DIR`: Output directory path
-- `CAMOUFOX_DEBUG`: Set to `true` for debug logging
-
-```bash
-docker run -i --rm \
-  -e CAMOUFOX_HEADLESS=true \
-  -e CAMOUFOX_PROXY=http://proxy:8080 \
-  -e CAMOUFOX_DEBUG=true \
-  camoufox-mcp
-```
-
-## Example Workflows
-
-### Advanced Login with CAPTCHA Solving
-```python
-# Navigate with stealth and geolocation
-await client.call_tool("browser_navigate", {
-    "url": "https://accounts.example.com/login",
-    "wait_until": "networkidle"
-})
-
-# Wait for page to fully load
-await client.call_tool("browser_wait_for", {
-    "selector": "input[name='username']",
-    "state": "visible"
-})
-
-# Enter credentials with human-like typing
-await client.call_tool("browser_type", {
-    "selector": "input[name='username']", 
-    "text": "myuser",
-    "delay": 120,  # Random delays between keystrokes
-    "clear": true
-})
-
-await client.call_tool("browser_type", {
-    "selector": "input[name='password']", 
-    "text": "mypass",
-    "delay": 150
-})
-
-# Take screenshot before submitting
-await client.call_tool("browser_screenshot", {
-    "filename": "before_submit.png"
-})
-
-# Submit form with human-like click
-await client.call_tool("browser_click", {
-    "selector": "button[type='submit']"
-})
-
-# Automatically solve CAPTCHA if it appears
-await client.call_tool("browser_solve_captcha", {
-    "captcha_type": "auto",
-    "timeout": 60
-})
-
-# Verify login success
-await client.call_tool("browser_wait_for", {
-    "text": "Welcome",
-    "timeout": 10000
-})
-```
-
-### Stealth Data Extraction with Geolocation
-```python
-# Set specific geolocation for region-locked content
-await client.call_tool("browser_set_geolocation", {
-    "latitude": 51.5074,  # London
-    "longitude": -0.1278,
-    "accuracy": 100
-})
-
-# Navigate with matched IP geolocation
-await client.call_tool("browser_navigate", {
-    "url": "https://geo-restricted-site.com/data"
-})
-
-# Wait for dynamic content to load
-await client.call_tool("browser_wait_for", {
-    "selector": "[data-loaded='true']",
-    "timeout": 15000
-})
-
-# Extract structured data
-data = await client.call_tool("browser_get_content", {
-    "selector": ".data-table",
-    "inner_html": true
-})
-
-# Take evidence screenshot
-await client.call_tool("browser_screenshot", {
-    "filename": "extracted_data.png",
-    "selector": ".data-table"
-})
-
-# Execute custom JavaScript for advanced extraction
-custom_data = await client.call_tool("browser_execute_js", {
-    "code": """
-    const items = Array.from(document.querySelectorAll('.item'));
-    return items.map(item => ({
-        title: item.querySelector('.title')?.textContent,
-        price: item.querySelector('.price')?.textContent,
-        availability: item.querySelector('.stock')?.textContent
-    }));
-    """,
-    "main_world": false  # Use isolated world for safety
-})
-```
-
-### Advanced Bot Detection Evasion
-```python
-# Navigate with maximum stealth
-await client.call_tool("browser_navigate", {
-    "url": "https://bot-detection-test.com"
-})
-
-# Human-like interaction patterns
-await client.call_tool("browser_execute_js", {
-    "code": """
-    // Simulate human-like mouse movements
-    document.addEventListener('mousemove', () => {
-        // Camoufox automatically handles this with --humanize
-    });
-    """,
-    "main_world": true
-})
-
-# Interact with elements using realistic delays
-await client.call_tool("browser_wait_for", {
-    "selector": "#start-test",
-    "timeout": 5000
-})
-
-await client.call_tool("browser_click", {"selector": "#start-test"})
-
-# Wait with realistic timing
-await client.call_tool("browser_wait_for", {
-    "text": "Test completed",
-    "timeout": 30000
-})
-
-# Extract detection results
-results = await client.call_tool("browser_get_content", {
-    "selector": ".detection-results"
-})
-```
-
-### File Upload with Stealth
-```python
-# Navigate to upload page
-await client.call_tool("browser_navigate", {
-    "url": "https://example.com/upload"
-})
-
-# Use JavaScript to simulate file selection (since we can't access local files)
-await client.call_tool("browser_execute_js", {
-    "code": """
-    // Create a file-like object for demonstration
-    const file = new File(['test content'], 'test.txt', {type: 'text/plain'});
-    const input = document.querySelector('input[type="file"]');
-    
-    // Simulate file selection
-    Object.defineProperty(input, 'files', {
-        value: [file],
-        writable: false
-    });
-    
-    // Trigger change event
-    input.dispatchEvent(new Event('change'));
-    """,
-    "main_world": true
-})
-
-# Continue with form submission
-await client.call_tool("browser_click", {
-    "selector": "button.upload-btn"
-})
-```
-
-## Stealth Features
-
-Camoufox includes several anti-detection features:
-
-- **Fingerprint randomization**: Randomizes browser fingerprints
-- **WebRTC blocking**: Prevents IP leaks
-- **Canvas fingerprint spoofing**: Avoids canvas-based tracking
-- **User agent rotation**: Uses realistic user agents
-- **Timing humanization**: Mimics human interaction patterns
-- **GeoIP consistency**: Matches timezone/language to IP location
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Browser fails to start**
-   ```bash
-   # Check if running in Docker with proper permissions
-   docker run -i --rm --privileged camoufox-mcp
-   ```
-
-2. **CAPTCHA solver not working**
-   ```bash
-   # Ensure captcha-solver flag is enabled
-   python camoufox_mcp_server.py --captcha-solver
-   ```
-
-3. **Connection timeouts**
-   ```bash
-   # Use proxy or different network
-   python camoufox_mcp_server.py --proxy "http://proxy:8080"
-   ```
-
-### Debug Mode
-
-Enable debug logging to troubleshoot issues:
-
-```bash
-python camoufox_mcp_server.py --debug
-```
-
-### Docker Logs
-
-```bash
-# View container logs
-docker logs <container_id>
-
-# Run with debug output
-docker run -i --rm -e CAMOUFOX_DEBUG=true camoufox-mcp
-```
-
-## Development
+- `browser_navigate` - Navigate to URLs with stealth capabilities
+- `browser_click` - Click elements with human-like movement
+- `browser_type` - Type text with realistic timing
+- `browser_wait_for` - Wait for elements or conditions
+- `browser_get_content` - Extract page content
+- `browser_screenshot` - Capture screenshots
+- `browser_execute_js` - Execute JavaScript code
+- `browser_set_geolocation` - Set browser location
+- `browser_solve_captcha` - Auto-solve CAPTCHAs (requires flag)
+- `browser_close` - Close browser and cleanup
+
+## Development & Installation
+
+For development, testing, or contributing to the project:
 
 ### Local Development Setup
 
 ```bash
-git clone https://github.com/yourusername/camoufox-mcp
+# Clone the repository
+git clone https://github.com/whit3rabbit/camoufox-mcp
 cd camoufox-mcp
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install in development mode
+# Install dependencies
+pip install -r requirements.txt
+
+# Or install as editable package with dev dependencies
 pip install -e ".[dev]"
 
-# Run tests
+# Download Camoufox browser
+python -m camoufox fetch
+```
+
+### Running Locally
+
+```bash
+# Run with STDIO (for MCP clients)
+python camoufox_mcp_server.py --headless=true --debug
+
+# Run with SSE/HTTP transport (for testing)
+python camoufox_mcp_server.py --port 8080 --host localhost --headless=true
+```
+
+### Testing with MCP Inspector
+
+```bash
+# Test local Python installation
+npx @modelcontextprotocol/inspector \
+  python /path/to/camoufox_mcp_server.py \
+  --headless=true --debug
+
+# Test with environment variables
+npx @modelcontextprotocol/inspector \
+  -e CAMOUFOX_DEBUG=true \
+  python camoufox_mcp_server.py --headless=true
+```
+
+### Running Tests
+
+```bash
+# Run unit tests
 pytest
+
+# Run with coverage
+pytest --cov=. --cov-report=xml --cov-report=term-missing -v
 
 # Format code
 black .
 
 # Type checking
-mypy .
+mypy camoufox_mcp_server.py
 ```
 
 ### Building Docker Image
 
 ```bash
-# Build image
+# Build locally
 docker build -t camoufox-mcp .
 
-# Test locally
+# Test the build
 docker run -i --rm camoufox-mcp --help
+
+# Multi-architecture build (requires buildx)
+./build-multiarch.sh
 ```
+
+### Docker Compose Development
+
+```bash
+# Run development container with source mounting
+docker-compose up camoufox-dev
+
+# Run tests in container
+docker-compose run camoufox-test
+
+# Run with SSE transport
+docker-compose up camoufox-sse
+```
+
+## Example Usage
+
+Once configured in your MCP client, you can use natural language to control the browser:
+
+```
+"Navigate to https://example.com and take a screenshot"
+"Click the login button and fill in the username field with 'testuser'"
+"Wait for the page to load and extract all the text content"
+"Solve any CAPTCHA that appears on the page"
+```
+
+## Architecture
+
+The Camoufox MCP server uses:
+- **FastMCP** framework for MCP protocol implementation
+- **STDIO transport** for communication with MCP clients
+- **Camoufox browser** for stealth automation
+- **Async/await** for non-blocking operations
+
+Communication flow:
+1. MCP client sends JSON-RPC requests via stdin
+2. Server processes requests and controls Camoufox browser
+3. Results are returned via stdout as JSON-RPC responses
+
+## Troubleshooting
+
+### Debug Mode
+
+Enable detailed logging to diagnose issues:
+
+```bash
+# Docker
+docker run -i --rm \
+  followthewhit3rabbit/camoufox-mcp:latest \
+  --debug
+
+# View container logs
+docker logs <container_id>
+```
+
+### Common Solutions
+
+1. **Browser fails to start**
+   ```bash
+   # Ensure Docker has enough resources
+   docker run -i --rm --memory=2g followthewhit3rabbit/camoufox-mcp:latest
+   ```
+
+2. **CAPTCHA solver not working**
+   ```bash
+   # Verify the flag is enabled
+   docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest \
+     --captcha-solver --disable-coop
+   ```
+
+3. **Connection timeouts**
+   ```bash
+   # Use a proxy or increase timeouts
+   docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest \
+     --proxy "http://proxy:8080"
+   ```
 
 ## Contributing
 
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests if applicable
-5. Run the test suite (`pytest`)
-6. Format code (`black .`)
-7. Commit your changes (`git commit -m 'Add amazing feature'`)
-8. Push to the branch (`git push origin feature/amazing-feature`)
-9. Open a Pull Request
+3. Make your changes and add tests
+4. Run the test suite (`pytest`)
+5. Format code (`black .`)
+6. Commit your changes (`git commit -m 'Add amazing feature'`)
+7. Push to the branch (`git push origin feature/amazing-feature`)
+8. Open a Pull Request
 
 ## License
 
@@ -751,15 +407,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [Camoufox](https://github.com/daijro/camoufox) - The stealth browser engine
-- [Camoufox-Captcha](https://github.com/techinz/camoufox-captcha) - CAPTCHA solving integration
-- [Model Context Protocol](https://modelcontextprotocol.io/) - The protocol this server implements
-- [Playwright MCP](https://github.com/microsoft/playwright-mcp) - Inspiration for the architecture
-
-## Support
-
-- GitHub Issues: [Report bugs or request features](https://github.com/yourusername/camoufox-mcp/issues)
-- Discussions: [Community discussions](https://github.com/yourusername/camoufox-mcp/discussions)
-
-## Disclaimer
-
-This tool is for educational and legitimate automation purposes only. Users are responsible for complying with websites' terms of service and applicable laws. The authors are not responsible for any misuse of this software.
+- [Model Context Protocol](https://modelcontextprotocol.io/) - The protocol specification
+- [MCP Inspector](https://github.com/modelcontextprotocol/inspector) - Testing tool
+- [FastMCP](https://github.com/jlowin/fastmcp) - MCP framework for Python

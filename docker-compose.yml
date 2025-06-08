@@ -1,9 +1,6 @@
 services:
   camoufox-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: camoufox-mcp:latest
+    image: followthewhit3rabbit/camoufox-mcp:latest
     container_name: camoufox-mcp-server
     environment:
       - DISPLAY=:99
@@ -67,10 +64,7 @@ services:
     
   # SSE server mode for HTTP access
   camoufox-sse:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: camoufox-mcp:latest
+    image: followthewhit3rabbit/camoufox-mcp:latest
     container_name: camoufox-mcp-sse
     environment:
       - DISPLAY=:99
@@ -90,10 +84,7 @@ services:
 
   # Maximum stealth configuration
   camoufox-stealth:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: camoufox-mcp:latest
+    image: followthewhit3rabbit/camoufox-mcp:latest
     container_name: camoufox-mcp-stealth
     environment:
       - DISPLAY=:99
