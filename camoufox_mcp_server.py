@@ -10,25 +10,26 @@ import logging
 import os
 import base64
 import time
+import sys
 from typing import Any, Dict, List, Optional, Union
 import argparse
 from dataclasses import dataclass, field
-from pathlib import Path
+from contextlib import contextmanager
 
 from mcp.server.fastmcp import FastMCP
-from mcp.server.stdio import stdio_server
-import uvicorn
 from mcp.types import (
     CallToolResult,
-    ListToolsResult,
     Tool,
     TextContent,
     ImageContent,
 )
+import uvicorn
+
+# Third-party imports
+from playwright.async_api import Error as PlaywrightError
 
 # Camoufox imports
 from camoufox.async_api import AsyncCamoufox
-from camoufox.sync_api import Camoufox
 try:
     from camoufox_captcha import CamoufoxCaptcha
     CAPTCHA_AVAILABLE = True
@@ -39,7 +40,12 @@ except ImportError:
 
 @dataclass
 class CamoufoxConfig:
-    """Configuration for Camoufox browser"""
+    """Configuration for the Camoufox browser instance.
+
+    This dataclass holds all settings related to how the Camoufox browser
+    will be launched and behave, including headless mode, humanization,
+    fingerprinting options, security settings, and proxy configuration.
+    """
     # Basic options
     headless: Union[bool, str] = True  # True, False, or 'virtual'
     humanize: Union[bool, float] = True  # Enable human cursor movement
@@ -75,30 +81,55 @@ class CamoufoxConfig:
 
 @dataclass 
 class ServerConfig:
-    """Server configuration"""
+    """Configuration for the MCP server itself.
+
+    Specifies network parameters like port and host for the server.
+    """
     port: Optional[int] = None
     host: str = "localhost"
 
 
 @dataclass
 class Config:
-    """Main configuration"""
+    """Main configuration container for the Camoufox MCP Server.
+
+    Aggregates browser-specific and server-specific configurations,
+    as well as global settings like debug mode.
+    """
     browser: CamoufoxConfig = field(default_factory=CamoufoxConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     debug: bool = False
 
 
 class CamoufoxMCPServer(FastMCP):
-    """Main Camoufox MCP Server class, inheriting from FastMCP"""
+    """Main Camoufox MCP Server class.
+
+    This server provides browser automation capabilities via the Camoufox library,
+    exposing them as tools compliant with the Model Context Protocol (MCP).
+    It handles browser initialization, tool registration, and execution.
+    The version of this specific Camoufox MCP Server implementation can be retrieved
+    using the 'get_server_version' tool.
+    """
     
     def __init__(self, config: Config):
+        """Initialize the CamoufoxMCPServer.
+
+        Sets up the server name, configuration, version, and initializes
+        placeholders for browser components and logging.
+
+        Args:
+            config: The configuration object for the server and browser.
+        """
         super().__init__("camoufox-mcp") # Initialize FastMCP base
         self.config = config
+        self.version = "1.9.3"  # Version of this Camoufox MCP Server implementation
         # self.server is no longer needed, 'self' is the server instance.
         self.browser: Optional[AsyncCamoufox] = None
+        self.browser_instance = None  # Browser instance when not using persistent context
         self.browser_context = None
         self.page = None
         self.captcha_solver: Optional[CamoufoxCaptcha] = None
+        self._browser_starting = False  # Flag to track browser startup
         
         # Get a logger specific to this class instance.
         # BasicConfig is done in main(), so we just get the logger here.
@@ -115,8 +146,45 @@ class CamoufoxMCPServer(FastMCP):
         # Tool registration is now done by overriding list_tools and call_tool methods directly.
         # No self._register_handlers() call needed.
     
-    async def list_tools(self) -> ListToolsResult:
-        """List available tools (overrides FastMCP.list_tools)"""
+    @contextmanager
+    def _redirect_stdout_to_stderr(self):
+        """Context manager to redirect stdout to stderr during browser operations"""
+        # For STDIO mode, we need to redirect at the file descriptor level
+        # to catch output from subprocesses (like Camoufox downloads)
+        if hasattr(self, 'config') and not self.config.server.port:
+            # STDIO mode - redirect at OS level
+            stdout_fd = sys.stdout.fileno()
+            stderr_fd = sys.stderr.fileno()
+            
+            # Save the original stdout
+            stdout_copy = os.dup(stdout_fd)
+            try:
+                # Redirect stdout to stderr
+                os.dup2(stderr_fd, stdout_fd)
+                yield
+            finally:
+                # Restore original stdout
+                os.dup2(stdout_copy, stdout_fd)
+                os.close(stdout_copy)
+        else:
+            # HTTP mode - simple redirect
+            original_stdout = sys.stdout
+            try:
+                sys.stdout = sys.stderr
+                yield
+            finally:
+                sys.stdout = original_stdout
+    
+    async def list_tools(self) -> List[Tool]:
+        """List available tools provided by this MCP server.
+
+        This method is overridden from FastMCP to define the specific tools
+        that this Camoufox server offers for browser automation, as well as
+        a tool to retrieve the server's version.
+
+        Returns:
+            A list of Tool objects describing the available tools.
+        """
         tools = [
             Tool(
                 name="browser_navigate",
@@ -316,155 +384,305 @@ class CamoufoxMCPServer(FastMCP):
                                 "description": "Timeout in seconds",
                                 "default": 60
                             }
-                        }
+                        } 
+                    } 
+                ) 
+            ) 
+            tools.append(
+                Tool(
+                    name="get_server_version",
+                    description="Get the current version of the Camoufox MCP server implementation.",
+                    inputSchema={"type": "object", "properties": {}},
+                    outputSchema={
+                        "type": "object",
+                        "properties": {"version": {"type": "string"}}
                     }
                 )
             )
-        return ListToolsResult(tools=tools)
+        return tools
 
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> CallToolResult:
-        """Handle tool calls (overrides FastMCP.call_tool)"""
+        """Handle incoming tool calls from an MCP client.
+
+        This method is overridden from FastMCP. It routes tool calls to their
+        respective implementation methods based on the tool's 'name'.
+        It also handles the 'get_server_version' tool call.
+
+        Args:
+            name: The name of the tool to call.
+            arguments: A dictionary of arguments for the tool.
+
+        Returns:
+            A CallToolResult object containing the output of the tool execution.
+        
+        Raises:
+            NotImplementedError: If the requested tool name does not match any of the
+                                 defined handlers in this method.
+        """
         try:
             if name == "browser_navigate":
                 return await self._navigate(arguments["url"], arguments.get("wait_until", "load"))
-            elif name == "browser_click":
+            if name == "browser_click":
                 return await self._click(arguments["selector"], arguments.get("button", "left"))
-            elif name == "browser_type":
+            if name == "browser_type":
                 return await self._type(
                     arguments["selector"], 
                     arguments["text"],
                     arguments.get("delay", 100),
                     arguments.get("clear", False)
                 )
-            elif name == "browser_wait_for":
+            if name == "browser_wait_for":
                 return await self._wait_for(
                     arguments.get("selector"),
                     arguments.get("text"), 
                     arguments.get("timeout", 30000),
                     arguments.get("state", "visible")
                 )
-            elif name == "browser_get_content":
+            if name == "browser_get_content":
                 return await self._get_content(
                     arguments.get("selector"),
                     arguments.get("attribute"),
                     arguments.get("inner_html", False)
                 )
-            elif name == "browser_screenshot":
+            if name == "browser_screenshot":
                 return await self._screenshot(
                     arguments.get("filename"),
                     arguments.get("selector"),
                     arguments.get("full_page", False)
                 )
-            elif name == "browser_execute_js":
+            if name == "browser_execute_js":
                 return await self._execute_js(
                     arguments["code"],
                     arguments.get("main_world", False)
                 )
-            elif name == "browser_set_geolocation":
+            if name == "browser_set_geolocation":
                 return await self._set_geolocation(
                     arguments["latitude"],
                     arguments["longitude"],
                     arguments.get("accuracy", 100)
                 )
-            elif name == "browser_close":
+            if name == "get_server_version":
+                self.logger.info("Reporting server version: %s", self.version)
+                return CallToolResult(content=[TextContent(text=self.version)])
+            if name == "browser_close":
                 return await self._close()
-            elif name == "browser_solve_captcha":
+            if name == "browser_solve_captcha":
                 if not (self.config.browser.captcha_solver and CAPTCHA_AVAILABLE):
                     return CallToolResult(
-                        content=[TextContent(type="text", text="CAPTCHA solver not available or not enabled.")],
+                        content=[TextContent(type="text", text="CAPTCHA solver not available/enabled.")],
                         isError=True
                     )
                 return await self._solve_captcha(
-                    arguments.get("captcha_type", "auto"),
-                    arguments.get("timeout", 60)
+                    arguments.get("captcha_type", "auto")
                 )
             else:
                 return CallToolResult(
                     content=[TextContent(type="text", text=f"Unknown tool: {name}")],
                     isError=True
                 )
-        except Exception as e:
-            self.logger.error(f"Error in tool {name}: {e}")
-            # Ensure browser is closed on error if it was started and not a close command error
-            if self.browser_context and name != "browser_close":
-                 await self._close_browser_resources() # Ensure this method exists and handles cleanup
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error during tool %s: %s", name, e_playwright)
+            # For critical browser errors, clean up resources
+            try:
+                if name == "browser_navigate" and "startup" in str(e_playwright).lower():
+                    await self._close_browser_resources()
+            except Exception as cleanup_error:
+                self.logger.error("Error during PlaywrightError cleanup: %s", cleanup_error)
             return CallToolResult(
-                content=[TextContent(type="text", text=f"Error: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ PW Error in {name}: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e:
+            self.logger.error("Error in tool %s: %s", name, e)
+            # For critical browser errors, clean up resources but don't close the whole browser
+            # Only close browser on startup errors or explicit close commands
+            try:
+                if name == "browser_navigate" and "startup" in str(e).lower():
+                    # Only cleanup on browser startup failures
+                    await self._close_browser_resources()
+            except Exception as cleanup_error:
+                self.logger.error("Error during cleanup: %s", cleanup_error)
+            
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ Error: {str(e)}")],
                 isError=True
             )
     
     async def _ensure_browser(self):
         """Ensure browser is running"""
-        if self.browser_context is None:
+        if self.browser_context is None and not self._browser_starting:
+            self._browser_starting = True
             self.logger.info("Starting Camoufox browser...")
             
-            # Build Camoufox options
-            options = {
-                "headless": self.config.browser.headless,
-                "humanize": self.config.browser.humanize,
-                "geoip": self.config.browser.geoip,
-                "block_webrtc": self.config.browser.block_webrtc,
-                "block_images": self.config.browser.block_images,
-                "block_webgl": self.config.browser.block_webgl,
-                "disable_coop": self.config.browser.disable_coop,
-                "enable_cache": self.config.browser.enable_cache,
-                "main_world_eval": self.config.browser.main_world_eval,
-            }
-            
-            # Add optional parameters
-            if self.config.browser.os:
-                options["os"] = self.config.browser.os
-            if self.config.browser.locale:
-                options["locale"] = self.config.browser.locale
-            if self.config.browser.fonts:
-                options["fonts"] = self.config.browser.fonts
-            if self.config.browser.proxy:
-                options["proxy"] = self.config.browser.proxy
-            if self.config.browser.user_agent:
-                options["user_agent"] = self.config.browser.user_agent
-            if self.config.browser.window:
-                options["window"] = self.config.browser.window
-            if self.config.browser.addons:
-                options["addons"] = self.config.browser.addons
-            if self.config.browser.user_data_dir:
-                options["user_data_dir"] = self.config.browser.user_data_dir
+            try: # Outer try block for the entire browser setup process
+                # Build Camoufox options
+                options = {
+                    "headless": self.config.browser.headless,
+                    "humanize": self.config.browser.humanize,
+                    "geoip": self.config.browser.geoip,
+                    "block_webrtc": self.config.browser.block_webrtc,
+                    "block_images": self.config.browser.block_images,
+                    "block_webgl": self.config.browser.block_webgl,
+                    "disable_coop": self.config.browser.disable_coop,
+                    "enable_cache": self.config.browser.enable_cache,
+                    "main_world_eval": self.config.browser.main_world_eval,
+                    "output_dir": self.config.browser.output_dir
+                }
+                if self.config.browser.os:
+                    options["os"] = self.config.browser.os
+                if self.config.browser.locale:
+                    options["locale"] = self.config.browser.locale
+                if self.config.browser.fonts:
+                    options["fonts"] = self.config.browser.fonts
+                if self.config.browser.proxy:
+                    options["proxy"] = self.config.browser.proxy
+                if self.config.browser.user_agent:
+                    options["user_agent"] = self.config.browser.user_agent
+                if self.config.browser.window:
+                    options["window"] = self.config.browser.window
+                if self.config.browser.addons:
+                    options["addons"] = self.config.browser.addons
+                if self.config.browser.user_data_dir:
+                    options["user_data_dir"] = self.config.browser.user_data_dir
+                    
+                # Handle persistent context
+                if self.config.browser.persistent_context:
+                    if not self.config.browser.user_data_dir:
+                        raise ValueError("persistent_context requires user_data_dir")
+                    options["persistent_context"] = True
+                    
+                self.browser = AsyncCamoufox(**options)
                 
-            # Handle persistent context
-            if self.config.browser.persistent_context:
-                if not self.config.browser.user_data_dir:
-                    raise ValueError("persistent_context requires user_data_dir")
-                options["persistent_context"] = True
+                # Critical section for browser context management
+                with self._redirect_stdout_to_stderr():
+                    # The type ignore is used because pylint might not fully understand
+                    # the __aenter__ return type with conditional logic inside AsyncCamoufox.
+                    async with self.browser as instance_or_context: # type: ignore
+                        if self.config.browser.persistent_context:
+                            # For persistent context, __aenter__ returns the context directly
+                            self.browser_context = instance_or_context
+                            self.browser_instance = None 
+                        else:
+                            # For non-persistent, __aenter__ returns the browser instance
+                            self.browser_instance = instance_or_context
+                            # Create a new context from the browser instance
+                            self.browser_context = await self.browser_instance.new_context() # type: ignore
                 
-            self.browser = AsyncCamoufox(**options)
-            self.browser_context = await self.browser.__aenter__()
+                self.logger.info("Camoufox browser started successfully")
+                self._browser_starting = False
+                
+                # Initialize captcha solver if enabled
+                if self.config.browser.captcha_solver and CAPTCHA_AVAILABLE:
+                    # Placeholder for captcha solver initialization if it needs the context
+                    # For example: self.captcha_solver = CamoufoxCaptcha(self.browser_context)
+                    pass
             
-            # Initialize captcha solver if enabled
-            if self.config.browser.captcha_solver and CAPTCHA_AVAILABLE:
-                # Note: CamoufoxCaptcha might need sync browser, will handle this
-                pass
+            # Exception handlers for the outer try block
+            except asyncio.TimeoutError as e_timeout:
+                self.logger.error("Browser startup timed out")
+                self._browser_starting = False
+                await self._cleanup_browser_on_error() # Attempt cleanup
+                # Re-raise as a more generic runtime error for the MCP client
+                raise RuntimeError("Browser startup timed out (45s)") from e_timeout
+            except PlaywrightError as e_playwright:
+                self.logger.error("Playwright error during browser startup: %s", e_playwright)
+                self._browser_starting = False
+                await self._cleanup_browser_on_error()
+                raise RuntimeError(f"PW error at startup: {e_playwright}") from e_playwright
+            except (TypeError, ValueError, FileNotFoundError) as e_config_or_file:
+                self.logger.error("Configuration or file error during browser startup: %s", e_config_or_file)
+                self._browser_starting = False
+                await self._cleanup_browser_on_error()
+                raise RuntimeError(f"Config/file error at startup: {e_config_or_file}") from e_config_or_file
+            except Exception as e_general: # Catch-all for other unexpected startup errors
+                self.logger.error("Unexpected error during browser startup: %s", e_general)
+                self._browser_starting = False
+                await self._cleanup_browser_on_error() # Attempt cleanup
+                # Re-raise as a more generic runtime error for the MCP client
+                raise RuntimeError(f"Unexpected startup error: {e_general}") from e_general
+        elif self._browser_starting:
+            # Wait for browser to finish starting
+            for _ in range(50):  # Wait up to 5 seconds
+                if self.browser_context is not None:
+                    break
+                await asyncio.sleep(0.1)
+            if self.browser_context is None:
+                raise RuntimeError("Browser startup failed or timed out")
+    
+    async def _cleanup_browser_on_error(self):
+        """Clean up browser resources on error"""
+        if self.browser:
+            try:
+                await self.browser.__aexit__(None, None, None)
+            except Exception as e:
+                self.logger.error("Error during browser cleanup: %s", e)
+            finally:
+                self.browser = None
+                self.browser_instance = None
+                self.browser_context = None
+                self.page = None
+                self._browser_starting = False
     
     async def _navigate(self, url: str, wait_until: str = "load") -> CallToolResult:
         """Navigate to URL with stealth capabilities"""
-        await self._ensure_browser()
-        
-        self.logger.info(f"Navigating to: {url}")
-        
-        # Create new page if needed
-        if self.page is None:
-            self.page = await self.browser_context.new_page()
-        
-        # Navigate with specified wait condition
-        await self.page.goto(url, wait_until=wait_until)
-        
-        title = await self.page.title()
-        current_url = self.page.url
-        
-        return CallToolResult(
-            content=[TextContent(
-                type="text", 
-                text=f"✅ Navigated to: {current_url}\n📄 Title: {title}\n🛡️ Stealth mode active"
-            )]
-        )
+        try:
+            # Ensure browser is ready
+            await self._ensure_browser()
+            
+            self.logger.info("Navigating to: %s", url)
+            
+            # Create new page if needed with shorter timeout
+            if self.page is None:
+                with self._redirect_stdout_to_stderr():
+                    self.page = await asyncio.wait_for(
+                        self.browser_context.new_page(),
+                        timeout=15.0
+                    )
+            
+            # Navigate with specified wait condition and reasonable timeout
+            with self._redirect_stdout_to_stderr():
+                await asyncio.wait_for(
+                    self.page.goto(url, wait_until=wait_until),
+                    timeout=20.0  # Reduced timeout to prevent session timeouts
+                )
+            
+            # Get page info with timeout
+            try:
+                title = await asyncio.wait_for(self.page.title(), timeout=3.0)
+            except asyncio.TimeoutError:
+                title = "Page title unavailable"
+            
+            current_url = self.page.url
+            
+            self.logger.info("Successfully navigated to: %s", current_url)
+            
+            return CallToolResult(
+                content=[TextContent(
+                    type="text", 
+                    text=f"✅ Navigated to: {current_url}\n📄 Title: {title}\n🛡️ Stealth mode active"
+                )],
+                isError=False
+            )
+            
+        except asyncio.TimeoutError:
+            error_msg = f"❌ Nav to {url} timed out (may occur on 1st run)"
+            self.logger.warning(error_msg)
+            return CallToolResult(
+                content=[TextContent(type="text", text=error_msg)],
+                isError=True
+            )
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error navigating to %s: %s", url, e_playwright)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"PW error nav to {url}: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other navigation errors
+            self.logger.error("Unexpected error navigating to %s: %s", url, e)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Error nav to {url}: {e}")],
+                isError=True
+            )
     
     async def _click(self, selector: str, button: str = "left") -> CallToolResult:
         """Click element with human-like movement"""
@@ -474,7 +692,7 @@ class CamoufoxMCPServer(FastMCP):
                 isError=True
             )
         
-        self.logger.info(f"Clicking element: {selector}")
+        self.logger.info("Clicking element: %s", selector)
         
         try:
             # Handle different selector types
@@ -493,12 +711,19 @@ class CamoufoxMCPServer(FastMCP):
             await element.click(button=button)
             
             return CallToolResult(
-                content=[TextContent(type="text", text=f"🖱️ Clicked element: {selector} (with human-like movement)")]
+                content=[TextContent(type="text", text=f"🖱️ Clicked: {selector} (human-like)")],
+                isError=False
             )
-            
-        except Exception as e:
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error clicking %s: %s", selector, e_playwright)
             return CallToolResult(
-                content=[TextContent(type="text", text=f"❌ Failed to click {selector}: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ PW err click {selector}: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other click errors
+            self.logger.error("Unexpected err clicking %s: %s", selector, e)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ Click failed {selector}: {e}")],
                 isError=True
             )
     
@@ -510,7 +735,7 @@ class CamoufoxMCPServer(FastMCP):
                 isError=True
             )
         
-        self.logger.info(f"Typing into element: {selector}")
+        self.logger.info("Typing into element: %s", selector)
         
         try:
             # Handle different selector types
@@ -530,10 +755,16 @@ class CamoufoxMCPServer(FastMCP):
             return CallToolResult(
                 content=[TextContent(type="text", text=f"⌨️ Typed '{text}' into {selector} (human-like timing)")]
             )
-            
-        except Exception as e:
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error typing into %s: %s", selector, e_playwright)
             return CallToolResult(
-                content=[TextContent(type="text", text=f"❌ Failed to type into {selector}: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ PW type err {selector}: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other type errors
+            self.logger.error("Unexpected err typing to %s: %s", selector, e)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ Type err {selector}: {e}")],
                 isError=True
             )
     
@@ -553,7 +784,7 @@ class CamoufoxMCPServer(FastMCP):
                 return CallToolResult(
                     content=[TextContent(type="text", text=f"✅ Found text: '{text}'")]
                 )
-            elif selector:
+            if selector: # Changed from elif
                 if selector.startswith("//"):
                     element = self.page.locator(f"xpath={selector}")
                 else:
@@ -562,19 +793,31 @@ class CamoufoxMCPServer(FastMCP):
                 return CallToolResult(
                     content=[TextContent(type="text", text=f"✅ Element found: {selector}")]
                 )
-            else:
+            # If neither text nor selector was provided (implicit from original else)
+            if not text and not selector:
                 return CallToolResult(
                     content=[TextContent(type="text", text="❌ Must specify either selector or text")],
                     isError=True
                 )
-        except Exception as e:
+        except PlaywrightError as e_playwright: # Typically a TimeoutError from Playwright
+            self.logger.warning("PW wait op failed (sel/txt): %s", e_playwright)
             return CallToolResult(
-                content=[TextContent(type="text", text=f"❌ Wait timeout: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ PW wait err: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other wait_for errors
+            self.logger.error("Error in _wait_for: %s", e)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ Wait err: {e}")],
                 isError=True
             )
     
-    async def _get_content(self, selector: Optional[str] = None, 
-                          attribute: Optional[str] = None, inner_html: bool = False) -> CallToolResult:
+    async def _get_content(
+        self,
+        selector: Optional[str] = None,
+        attribute: Optional[str] = None,
+        inner_html: bool = False
+    ) -> CallToolResult:
         """Get page content or element text"""
         if not self.page:
             return CallToolResult(
@@ -602,15 +845,22 @@ class CamoufoxMCPServer(FastMCP):
                     content = await self.page.inner_text("body")
             
             return CallToolResult(
-                content=[TextContent(type="text", text=content or "")]
+                content=[TextContent(type="text", text=content or "")],
+                isError=False
             )
-            
-        except Exception as e:
+        except PlaywrightError as e_playwright:
+            self.logger.error("PW error in _get_content (sel: %s): %s", selector, e_playwright)
             return CallToolResult(
-                content=[TextContent(type="text", text=f"❌ Failed to get content: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ PW err get_content: {e_playwright}")],
                 isError=True
             )
-    
+        except Exception as e: # Catch-all for other get_content errors
+            self.logger.error("Unexpected error in _get_content: %s", e)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ Error get_content: {e}")],
+                isError=True
+            )
+
     async def _screenshot(self, filename: Optional[str] = None, 
                          selector: Optional[str] = None, full_page: bool = False) -> CallToolResult:
         """Take screenshot with Camoufox"""
@@ -655,10 +905,16 @@ class CamoufoxMCPServer(FastMCP):
                     TextContent(type="text", text=f"📸 Screenshot saved: {filepath}")
                 ]
             )
-            
-        except Exception as e:
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error in _screenshot: %s", e_playwright)
             return CallToolResult(
-                content=[TextContent(type="text", text=f"❌ Screenshot failed: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ PW err screenshot: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other screenshot errors
+            self.logger.error("Unexpected error in _screenshot: %s", e)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ Err screenshot: {e}")],
                 isError=True
             )
     
@@ -688,16 +944,29 @@ class CamoufoxMCPServer(FastMCP):
             world_info = " (main world)" if main_world else " (isolated world)"
             
             return CallToolResult(
-                content=[TextContent(type="text", text=f"🔧 JavaScript executed{world_info}:\n```\n{result_str}\n```")]
+                content=[
+                    TextContent(
+                        type="text",
+                        text=f"🔧 JavaScript executed{world_info}:\n```\n{result_str}\n```"
+                    )
+                ]
             )
-            
-        except Exception as e:
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error executing JS: %s", e_playwright)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ PW err JS exec: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other JS execution errors
+            self.logger.error("Unexpected err JS exec: %s", e)
             return CallToolResult(
                 content=[TextContent(type="text", text=f"❌ JavaScript execution failed: {str(e)}")],
                 isError=True
             )
     
-    async def _set_geolocation(self, latitude: float, longitude: float, accuracy: float = 100) -> CallToolResult:
+    async def _set_geolocation(
+        self, latitude: float, longitude: float, accuracy: float = 100
+    ) -> CallToolResult:
         """Set browser geolocation"""
         if not self.page:
             return CallToolResult(
@@ -706,23 +975,41 @@ class CamoufoxMCPServer(FastMCP):
             )
         
         try:
-            await self.page.set_geolocation({"latitude": latitude, "longitude": longitude, "accuracy": accuracy})
+            await self.page.set_geolocation({
+                "latitude": latitude, "longitude": longitude, "accuracy": accuracy
+            })
             
             return CallToolResult(
-                content=[TextContent(type="text", text=f"🌍 Geolocation set: {latitude}, {longitude} (±{accuracy}m)")]
+                content=[
+                    TextContent(
+                        type="text",
+                        text=f"🌍 Geolocation set: {latitude}, {longitude} (±{accuracy}m)"
+                    )
+                ]
             )
-            
-        except Exception as e:
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error setting geolocation: %s", e_playwright)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ PW err set_geo: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other set_geolocation errors
+            self.logger.error("Unexpected err set_geo: %s", e)
             return CallToolResult(
                 content=[TextContent(type="text", text=f"❌ Failed to set geolocation: {str(e)}")],
                 isError=True
             )
     
-    async def _solve_captcha(self, captcha_type: str = "auto", timeout: int = 60) -> CallToolResult:
+    async def _solve_captcha(self, captcha_type: str = "auto") -> CallToolResult:
         """Solve CAPTCHA automatically"""
         if not CAPTCHA_AVAILABLE:
             return CallToolResult(
-                content=[TextContent(type="text", text="❌ CAPTCHA solver not available. Install camoufox-captcha.")],
+                content=[
+                    TextContent(
+                        type="text",
+                        text="❌ CAPTCHA solver not available. Install camoufox-captcha."
+                    )
+                ],
                 isError=True
             )
         
@@ -732,7 +1019,7 @@ class CamoufoxMCPServer(FastMCP):
                 isError=True
             )
         
-        self.logger.info(f"Solving CAPTCHA: {captcha_type}")
+        self.logger.info("Solving CAPTCHA: %s", captcha_type)
         
         try:
             # Note: CamoufoxCaptcha integration would need to be adapted for async usage
@@ -742,10 +1029,16 @@ class CamoufoxMCPServer(FastMCP):
             return CallToolResult(
                 content=[TextContent(type="text", text=result)]
             )
-            
-        except Exception as e:
+        except PlaywrightError as e_playwright:
+            self.logger.error("Playwright error in _solve_captcha: %s", e_playwright)
             return CallToolResult(
-                content=[TextContent(type="text", text=f"❌ CAPTCHA solving failed: {str(e)}")],
+                content=[TextContent(type="text", text=f"❌ PW err CAPTCHA: {e_playwright}")],
+                isError=True
+            )
+        except Exception as e: # Catch-all for other CAPTCHA errors
+            self.logger.error("Unexpected error in _solve_captcha: %s", e)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ Err CAPTCHA: {e}")],
                 isError=True
             )
 
@@ -755,8 +1048,10 @@ class CamoufoxMCPServer(FastMCP):
             try:
                 await self.page.close()
                 self.logger.debug("Page closed.")
+            except PlaywrightError as e_pw:
+                self.logger.error("PW error closing page: %s", e_pw)
             except Exception as e:
-                self.logger.error(f"Error closing page: {e}")
+                self.logger.error("Unexpected err closing page: %s", e)
             finally:
                 self.page = None
                 
@@ -765,59 +1060,49 @@ class CamoufoxMCPServer(FastMCP):
                 # __aexit__ is the correct way to close AsyncCamoufox context manager
                 await self.browser.__aexit__(None, None, None) 
                 self.logger.info("Camoufox browser context closed.")
+            except PlaywrightError as e_pw:
+                self.logger.error("PW error closing browser ctx: %s", e_pw)
             except Exception as e:
-                self.logger.error(f"Error closing browser context: {e}")
+                self.logger.error("Unexpected err closing browser ctx: %s", e)
             finally:
                 self.browser = None
+                self.browser_instance = None
                 self.browser_context = None
                 self.captcha_solver = None # Also reset captcha solver if it depends on browser
     
     async def _close(self) -> CallToolResult:
         """Close browser and clean up"""
         try:
-            if self.page:
-                await self.page.close()
-                self.page = None
-                
-            if self.browser:
-                await self.browser.__aexit__(None, None, None)
-                self.browser = None
-                self.browser_context = None
-                self.captcha_solver = None
-            
+            self.logger.info("Attempting to close browser resources via _close tool.")
+            await self._close_browser_resources()
+            self.logger.info("Browser resources should be closed.")
             return CallToolResult(
-                content=[TextContent(type="text", text="🔒 Browser closed and resources cleaned up")]
+                content=[TextContent(type="text", text="🔒 Browser closed and resources cleaned up.")]
             )
-            
-        except Exception as e:
+        except Exception as e: # Catch any unexpected error from _close_browser_resources
+            self.logger.error("Unexpected error during _close operation: %s", e)
             return CallToolResult(
                 content=[TextContent(type="text", text=f"❌ Error closing browser: {str(e)}")],
                 isError=True
             )
     
-    async def run_stdio(self):
-        """Run server with stdio transport"""
-        self.logger.info("Starting server with STDIO transport")
-        # stdio_server might still work with FastMCP if it adheres to the same server interface
-        # or FastMCP might have its own way to handle stdio.
-        await stdio_server(self, logger=self.logger) # Changed self.server to self
     
     async def run_sse(self):
         """Run server with SSE transport using uvicorn"""
-        # 'self' is now the FastMCP ASGI app
-        # uvicorn.run is synchronous. Since main() calls asyncio.run(server.run_sse()),
-        # and run_sse itself is an async def containing a sync call, this might lead to issues
-        # if asyncio.run is expecting run_sse to be fully async. 
-        # However, uvicorn.run() will block, which is the desired behavior for running the server.
-        # If run_sse were awaited by another async function, uvicorn.Server(...).serve() would be more appropriate.
-        self.logger.info(f"Starting HTTP server on {self.config.server.host}:{self.config.server.port}")
-        uvicorn.run(
-            self, # Changed self.server to self
+        self.logger.info(
+            "Starting HTTP server on %s:%s",
+            self.config.server.host, self.config.server.port
+        )
+        
+        # Use uvicorn.Server for proper async support
+        config = uvicorn.Config(
+            self,
             host=self.config.server.host,
             port=self.config.server.port,
             log_level=logging.getLevelName(self.logger.getEffectiveLevel()).lower(),
-            # access_log=False # Can be useful to reduce verbosity
         )
+        server = uvicorn.Server(config)
+        await server.serve()
 
 
 def parse_args():
@@ -837,7 +1122,9 @@ def parse_args():
     fingerprint_group = parser.add_argument_group("Fingerprinting & Stealth")
     fingerprint_group.add_argument("--os", choices=["windows", "macos", "linux"], 
                                    help="Target operating system for fingerprinting")
-    fingerprint_group.add_argument("--geoip", help="IP address for geolocation (or 'auto' for auto-detection)")
+    fingerprint_group.add_argument(
+        "--geoip", help="IP address for geolocation (or 'auto' for auto-detection)"
+    )
     fingerprint_group.add_argument("--no-geoip", action="store_true", help="Disable GeoIP features")
     fingerprint_group.add_argument("--locale", help="Locale/language (e.g., 'en-US' or 'US')")
     fingerprint_group.add_argument("--fonts", nargs="+", help="Custom fonts to load")
@@ -893,15 +1180,33 @@ def main():
     args = parse_args()
 
     # Setup logging early. Logs from MCP SDK and uvicorn will also use this.
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    # Example of getting a logger in main, though server will get its own.
-    # logger = logging.getLogger(__name__) 
-    # logger.info("Camoufox MCP Server starting...")
+    # For STDIO transport, disable logging to avoid interfering with JSON-RPC communication
+    # unless explicitly running in debug mode with HTTP transport
+    if args.port:
+        # HTTP/SSE mode - normal logging is fine
+        log_level = logging.DEBUG if args.debug else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+    else:
+        # STDIO mode - always log to stderr to avoid stdout interference
+        log_level = logging.DEBUG if args.debug else logging.WARNING
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S',
+            stream=sys.stderr  # Explicitly use stderr for STDIO mode
+        )
+        
+        # For STDIO mode, we need to be more aggressive about stdout protection
+        # Store the original stdout fd for MCP communication
+        os.environ['MCP_ORIGINAL_STDOUT_FD'] = str(sys.stdout.fileno())
+    
+    # Create logger and log startup
+    logger = logging.getLogger(__name__)
+    logger.info("Camoufox MCP Server starting...")
     
     # Build browser config
     browser_config = CamoufoxConfig()
@@ -969,8 +1274,10 @@ def main():
         try:
             width, height = map(int, args.window.split('x'))
             browser_config.window = (width, height)
-        except ValueError:
-            raise ValueError("Invalid window size format. Use WIDTHxHEIGHT (e.g., 1920x1080)")
+        except ValueError as ve:
+            raise ValueError(
+                "Invalid window size format. Use WIDTHxHEIGHT (e.g., 1920x1080)"
+            ) from ve
     
     browser_config.enable_cache = args.enable_cache
     browser_config.persistent_context = args.persistent
@@ -1000,7 +1307,8 @@ def main():
     if args.port:
         asyncio.run(server.run_sse())
     else:
-        asyncio.run(server.run_stdio())
+        # Use FastMCP's async run method for stdio
+        asyncio.run(server.run_stdio_async())
 
 
 if __name__ == "__main__":
