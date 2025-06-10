@@ -1,94 +1,74 @@
-# Multi-stage Docker build for Camoufox MCP Server
-
 # ------------------------------
-# Base stage with system dependencies
+# Stage 1: The "builder" Stage
+# Purpose: Install all dependencies, build the code, and fetch the browser.
 # ------------------------------
-    FROM python:3.11-slim-bullseye AS base
+    FROM node:22-bullseye-slim AS builder
 
-    # Install system dependencies for Camoufox and virtual display
+    # Install system dependencies required for native Node.js addons (like sqlite3 for camoufox)
     RUN apt-get update && apt-get install -y --no-install-recommends \
-        # Virtual display for headless operation
-        xvfb \
-        xauth \
-        procps \
-        # Firefox/Camoufox dependencies  
-        libgtk-3-0 libx11-xcb1 libasound2 libdbus-glib-1-2 libxt6 libpci3 libxss1 libgconf-2-4 \
-        # Additional utilities
-        wget gnupg ca-certificates curl \
+        python3 \
+        build-essential \
         && rm -rf /var/lib/apt/lists/*
-        
-    # Set environment variables
-    ENV PYTHONUNBUFFERED=1
-    ENV PYTHONDONTWRITEBYTECODE=1
-    ENV DISPLAY=:99
-        
-    # Create app directory and non-root user
+    
     WORKDIR /app
-    RUN useradd -m -u 1000 camoufox && \
-        chown -R camoufox:camoufox /app && \
-        # Create and set permissions for Xvfb socket directory
-        mkdir -p /tmp/.X11-unix && \
-        chown -R camoufox:camoufox /tmp/.X11-unix && \
-        chmod 1777 /tmp/.X11-unix
-        
-    # ------------------------------
-    # Dependencies stage
-    # ------------------------------
-    FROM base AS deps
-        
-    # Switch to non-root user for Python installations
-    USER camoufox
-    ENV PATH=/home/camoufox/.local/bin:$PATH
-        
-    # Copy requirements first for better caching
-    COPY --chown=camoufox:camoufox requirements.txt .
-        
-    # Install Python dependencies
-    RUN pip install --user --no-cache-dir -r requirements.txt
     
-    # NOTE: Removed 'RUN python -m camoufox fetch' as the preload script handles it.
+    # Copy package files and install ALL dependencies, including devDependencies for building.
+    # This leverages Docker's layer caching.
+    COPY package.json package-lock.json ./
+    RUN npm install
     
-    # Copy application code needed for the preload script
-    COPY --chown=camoufox:camoufox camoufox_mcp/ ./camoufox_mcp/
-    COPY --chown=camoufox:camoufox scripts/preload_browser.py ./scripts/
-    # Also create an __init__.py to make 'scripts' a package
-    RUN touch scripts/__init__.py
-        
-    # Pre-download browser, profile, and addons by running a dummy server instance.
-    # Using xvfb-run is much more robust than managing Xvfb manually.
-    RUN xvfb-run -a --server-args="-screen 0 1280x1024x24" \
-        python -m scripts.preload_browser
+    # Copy the rest of your application's source code
+    COPY . .
+    
+    # Build your TypeScript application
+    RUN npm run build
+    
+    # --- THIS IS THE KEY STEP ---
+    # Run the fetch command to download the Camoufox browser, GeoIP database, and default addons.
+    # The files will be saved to the cache directory of the current user (root).
+    # This ensures the browser is part of the image layer, not downloaded at runtime.
+    RUN npx camoufox-js fetch
     
     # ------------------------------
-    # Final runtime stage
+    # Stage 2: The "runtime" Stage
+    # Purpose: Create the final, lean image with only what's needed to run the app.
     # ------------------------------
-    FROM base AS runtime
+    FROM node:22-bullseye-slim AS runtime
     
-    # Switch to non-root user
-    USER camoufox
+    # Install system dependencies required by Firefox and the virtual display (Xvfb)
+    RUN apt-get update && apt-get install -y --no-install-recommends \
+        # For running in a headless environment with a virtual display
+        xvfb \
+        # Minimal set of libraries required for headless Firefox to run
+        libgtk-3-0 libx11-xcb1 libxfixes3 libxrandr2 libxtst6 libx11-6 libxcomposite1 \
+        libasound2 libdbus-glib-1-2 libpci3 libxss1 libgconf-2-4 libnss3 libatk1.0-0 \
+        libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libatspi2.0-0 \
+        && rm -rf /var/lib/apt/lists/*
     
-    # Copy installed packages and the warmed-up cache from the deps stage
-    COPY --from=deps --chown=camoufox:camoufox /home/camoufox/.local /home/camoufox/.local
-    COPY --from=deps --chown=camoufox:camoufox /home/camoufox/.cache /home/camoufox/.cache
-        
-    # Add local bin to PATH
-    ENV PATH=/home/camoufox/.local/bin:$PATH
-        
-    # Copy only the necessary application code for the final image
-    COPY --chown=camoufox:camoufox camoufox_mcp/ ./camoufox_mcp/
-    COPY --chown=camoufox:camoufox main.py .
-    COPY --chown=camoufox:camoufox docker-entrypoint.sh .
-    RUN chmod +x docker-entrypoint.sh
-        
-    # Ensure output dir exists
-    RUN mkdir -p /tmp/camoufox-mcp && chown camoufox:camoufox /tmp/camoufox-mcp
+    # Create a dedicated, non-root user for security
+    RUN useradd -m -u 1000 myappuser
+    USER myappuser
+    WORKDIR /home/myappuser/app
     
-    # Expose port for SSE transport (optional)
-    EXPOSE 8080
-     
-    # Health check
-    HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-        CMD python -c "import camoufox; print('Camoufox OK')" || exit 1
-        
-    ENTRYPOINT ["/app/docker-entrypoint.sh"]
-    CMD []
+    # Copy package files to install only production dependencies
+    COPY --from=builder /app/package.json /app/package-lock.json ./
+    
+    # Install only production dependencies to keep the image small
+    RUN npm ci --omit-dev
+    
+    # Copy the built application code from the builder stage
+    COPY --from=builder /app/dist ./dist
+    
+    # Copy the pre-downloaded Camoufox browser from the builder's cache to our new user's cache.
+    # The --chown flag is critical to ensure the new user has permission to access these files.
+    COPY --from=builder --chown=myappuser:myappuser /root/.cache/camoufox /home/myappuser/.cache/camoufox
+    
+    # Expose the port your application listens on (if any).
+    # If you are not running a web server, you can remove this line.
+    # EXPOSE 3000
+    
+    # The command to start the application.
+    # `xvfb-run` robustly manages the virtual display for Camoufox.
+    # It starts Xvfb, sets the DISPLAY env var, and then runs your Node.js app.
+    # The '-a' flag automatically finds a free server number.
+    ENTRYPOINT ["xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24", "node", "dist/index.js"]
