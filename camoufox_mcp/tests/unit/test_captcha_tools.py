@@ -123,9 +123,8 @@ class TestCaptchaTools:
             with patch.object(captcha_tools_enabled, 'solve_captcha') as mock_solve:
                 mock_solve.side_effect = PlaywrightError("CAPTCHA element not found")
                 
-                result = await mock_solve("auto")
-                
-                assert isinstance(result, PlaywrightError)
+                with pytest.raises(PlaywrightError, match="CAPTCHA element not found"):
+                    await mock_solve("auto")
     
     @pytest.mark.asyncio
     async def test_solve_captcha_generic_error(self, captcha_tools_enabled, mock_page):
@@ -135,9 +134,8 @@ class TestCaptchaTools:
             with patch.object(captcha_tools_enabled, 'solve_captcha') as mock_solve:
                 mock_solve.side_effect = ValueError("Invalid CAPTCHA type")
                 
-                result = await mock_solve("invalid")
-                
-                assert isinstance(result, ValueError)
+                with pytest.raises(ValueError, match="Invalid CAPTCHA type"):
+                    await mock_solve("invalid")
     
     @pytest.mark.asyncio
     async def test_solve_captcha_logs_attempt(self, captcha_tools_enabled, mock_page, caplog):

@@ -135,7 +135,8 @@ class TestBrowserTools:
         """Test browser navigation tool"""
         self.mock_page.goto.return_value = None
         
-        result = await self.server.browser_navigate(url="https://example.com")
+        # Use a data URL to avoid network dependencies
+        result = await self.server.browser_navigate(url="data:text/html,<h1>Test</h1>")
         
         self.mock_page.goto.assert_called_once_with("https://example.com", wait_until="load")
         assert len(result) > 0

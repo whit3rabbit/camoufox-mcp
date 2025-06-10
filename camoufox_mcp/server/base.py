@@ -81,7 +81,7 @@ class CamoufoxMCPServer(FastMCP):
         with redirect_stdout_to_stderr(self.config):
             yield
     
-    async def list_tools(self) -> List[Tool]:
+    def list_tools(self) -> List[Tool]:
         """List available tools provided by this MCP server.
 
         This method is overridden from FastMCP to define the specific tools
@@ -324,6 +324,7 @@ class CamoufoxMCPServer(FastMCP):
             NotImplementedError: If the requested tool name does not match any of the
                                  defined handlers in this method.
         """
+        self.logger.info("[CALL_TOOL] Received tool call: %s with arguments: %s", name, arguments)
         try:
             if name == "browser_navigate":
                 return await self.navigation_tools.navigate(arguments["url"], arguments.get("wait_until", "load"))
@@ -414,12 +415,16 @@ class CamoufoxMCPServer(FastMCP):
     
     async def _ensure_browser(self):
         """Ensure browser is running"""
+        self.logger.info("[ENSURE_BROWSER] Starting _ensure_browser method")
+        self.logger.info("[ENSURE_BROWSER] Current state - browser_context: %s, _browser_starting: %s", 
+                         self.browser_context is not None, self._browser_starting)
+        
         if self.browser_context is None and not self._browser_starting:
             self._browser_starting = True
-            self.logger.info("Starting Camoufox browser...")
+            self.logger.info("[ENSURE_BROWSER] Browser not started, initiating startup sequence")
             
             try: # Outer try block for the entire browser setup process
-                # Build Camoufox options
+                self.logger.info("Building Camoufox options...")
                 options = {
                     "headless": self.config.browser.headless,
                     "humanize": self.config.browser.humanize,
@@ -429,8 +434,8 @@ class CamoufoxMCPServer(FastMCP):
                     "block_webgl": self.config.browser.block_webgl,
                     "disable_coop": self.config.browser.disable_coop,
                     "enable_cache": self.config.browser.enable_cache,
-                    "main_world_eval": self.config.browser.main_world_eval,
-                    "output_dir": self.config.browser.output_dir
+                    "main_world_eval": self.config.browser.main_world_eval
+                    # Note: output_dir is not a valid Camoufox option
                 }
                 if self.config.browser.os:
                     options["os"] = self.config.browser.os
@@ -448,64 +453,95 @@ class CamoufoxMCPServer(FastMCP):
                     options["addons"] = self.config.browser.addons
                 if self.config.browser.user_data_dir:
                     options["user_data_dir"] = self.config.browser.user_data_dir
-                    
-                # Handle persistent context
+                self.logger.info("Camoufox options built.")
+                
+                # Default timeouts if not in config (adjust as needed)
+                # Increased timeouts to handle first-time browser downloads
+                browser_start_timeout = getattr(self.config.browser, 'browser_timeout', 120.0)
+                context_creation_timeout = getattr(self.config.browser, 'context_timeout', 60.0)
+
                 if self.config.browser.persistent_context:
                     if not self.config.browser.user_data_dir:
-                        raise ValueError("persistent_context requires user_data_dir")
-                    options["persistent_context"] = True
+                        self.logger.error("Persistent context requires user_data_dir to be set.")
+                        raise ValueError("user_data_dir must be set for persistent context")
                     
-                self.browser = AsyncCamoufox(**options)
+                    self.logger.info("[ENSURE_BROWSER] Using persistent browser context from: %s. Timeout: %ss", 
+                                     self.config.browser.user_data_dir, browser_start_timeout)
+                    self.browser = AsyncCamoufox(**options)
+                    self.logger.info("[ENSURE_BROWSER] Launching persistent context...")
+                    self.browser_context = await asyncio.wait_for(
+                        self.browser.launch_persistent_context(
+                            user_data_dir=self.config.browser.user_data_dir,
+                            options=options
+                        ),
+                        timeout=browser_start_timeout
+                    )
+                    self.logger.info("Persistent browser context launched.")
+                    if self.browser_context.pages:
+                        self.page = self.browser_context.pages[0]
+                    else:
+                        self.page = await asyncio.wait_for(
+                            self.browser_context.new_page(), 
+                            timeout=context_creation_timeout
+                        ) # Ensure a page exists
+                    self.logger.info("Initial page for persistent context ensured.")
+                else:
+                    self.logger.info("[ENSURE_BROWSER] Initializing AsyncCamoufox for non-persistent context...")
+                    self.logger.info("[ENSURE_BROWSER] Options: %s", options)
+                    self.browser_instance = AsyncCamoufox(**options)
+                    self.logger.info("[ENSURE_BROWSER] AsyncCamoufox instance created. Starting browser... Timeout: %ss", browser_start_timeout)
+                    self.browser = await asyncio.wait_for(
+                        self.browser_instance.start(), 
+                        timeout=browser_start_timeout
+                    )
+                    self.logger.info("[ENSURE_BROWSER] Browser started successfully. Creating new context... Timeout: %ss", context_creation_timeout)
+                    # Camoufox handles these options internally, so we just create a basic context
+                    context_options = {}
+                    if self.config.browser.viewport:
+                        context_options["viewport"] = self.config.browser.viewport
+                    
+                    self.browser_context = await asyncio.wait_for(
+                        self.browser.new_context(**context_options),
+                        timeout=context_creation_timeout
+                    )
+                    self.logger.info("[ENSURE_BROWSER] Browser context created for non-persistent session.")
                 
-                # Critical section for browser context management
-                with self._redirect_stdout_to_stderr():
-                    # The type ignore is used because pylint might not fully understand
-                    # the __aenter__ return type with conditional logic inside AsyncCamoufox.
-                    async with self.browser as instance_or_context: # type: ignore
-                        if self.config.browser.persistent_context:
-                            # For persistent context, __aenter__ returns the context directly
-                            self.browser_context = instance_or_context
-                            self.browser_instance = None 
-                        else:
-                            # For non-persistent, __aenter__ returns the browser instance
-                            self.browser_instance = instance_or_context
-                            # Create a new context from the browser instance
-                            self.browser_context = await self.browser_instance.new_context() # type: ignore
+                # Create initial page if not in persistent context
+                if self.page is None:
+                    self.logger.info("[ENSURE_BROWSER] Creating initial page...")
+                    self.page = await self.browser_context.new_page()
+                    self.logger.info("[ENSURE_BROWSER] Initial page created")
                 
-                self.logger.info("Camoufox browser started successfully")
-                self._browser_starting = False
-            
-            # Exception handlers for the outer try block
+                self.logger.info("[ENSURE_BROWSER] Camoufox browser ready. page=%s", self.page is not None)
             except asyncio.TimeoutError as e_timeout:
-                self.logger.error("Browser startup timed out")
-                self._browser_starting = False
-                await self._cleanup_browser_on_error() # Attempt cleanup
-                # Re-raise as a more generic runtime error for the MCP client
-                raise RuntimeError("Browser startup timed out (45s)") from e_timeout
-            except PlaywrightError as e_playwright:
-                self.logger.error("Playwright error during browser startup: %s", e_playwright)
-                self._browser_starting = False
+                self.logger.error("Timeout during browser startup: %s", e_timeout)
+                await self._cleanup_browser_on_error() 
+                raise
+            except Exception as e:
+                self.logger.error("Error starting Camoufox browser: %s", e)
                 await self._cleanup_browser_on_error()
-                raise RuntimeError(f"PW error at startup: {e_playwright}") from e_playwright
-            except (TypeError, ValueError, FileNotFoundError) as e_config_or_file:
-                self.logger.error("Configuration or file error during browser startup: %s", e_config_or_file)
+                raise
+            finally:
                 self._browser_starting = False
-                await self._cleanup_browser_on_error()
-                raise RuntimeError(f"Config/file error at startup: {e_config_or_file}") from e_config_or_file
-            except Exception as e_general: # Catch-all for other unexpected startup errors
-                self.logger.error("Unexpected error during browser startup: %s", e_general)
-                self._browser_starting = False
-                await self._cleanup_browser_on_error() # Attempt cleanup
-                # Re-raise as a more generic runtime error for the MCP client
-                raise RuntimeError(f"Unexpected startup error: {e_general}") from e_general
+                self.logger.info("Exiting _ensure_browser. Browser starting flag reset.")
+        elif self.browser_context is not None:
+            self.logger.info("Browser context already exists.")
         elif self._browser_starting:
-            # Wait for browser to finish starting
-            for _ in range(50):  # Wait up to 5 seconds
-                if self.browser_context is not None:
-                    break
+            self.logger.info("Browser startup already in progress. Waiting...")
+            wait_cycles = 0
+            # Use a reasonable overall wait time, e.g., sum of typical browser and context timeouts
+            # Fallback to 90s if specific timeouts aren't in config for this calculation
+            max_total_startup_wait = getattr(self.config.browser, 'browser_timeout', 60.0) + getattr(self.config.browser, 'context_timeout', 30.0)
+            max_wait_cycles = int(max_total_startup_wait / 0.1) 
+
+            while self.browser_context is None and self._browser_starting and wait_cycles < max_wait_cycles:
                 await asyncio.sleep(0.1)
+                wait_cycles += 1
             if self.browser_context is None:
-                raise RuntimeError("Browser startup failed or timed out")
+                self.logger.error("Timed out waiting for concurrent browser startup to complete.")
+                # Do not reset self._browser_starting here, the original task owns it.
+                raise Exception("Browser startup conflict or timeout waiting for another task")
+            self.logger.info("Concurrent browser startup completed. Context now available.")
     
     async def _cleanup_browser_on_error(self):
         """Clean up browser resources on error"""

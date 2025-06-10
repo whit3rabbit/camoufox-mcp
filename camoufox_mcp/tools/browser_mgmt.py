@@ -32,4 +32,4 @@ class BrowserManagementTools:
         """Get the current version of the Camoufox MCP server implementation"""
         from .. import __version__
         self.logger.info("Reporting server version: %s", __version__)
-        return CallToolResult(content=[TextContent(text=__version__)])
+        return CallToolResult(content=[TextContent(type="text", text=__version__)])

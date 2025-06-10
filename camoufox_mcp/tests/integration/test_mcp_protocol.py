@@ -4,6 +4,7 @@ Tests the Camoufox MCP Server against the full MCP specification
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import os
 from pathlib import Path
@@ -37,7 +38,7 @@ class TestMCPProtocolCompliance:
         """Check if tests should use Docker"""
         return hasattr(request.config.option, 'docker') and request.config.option.docker
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def mcp_client(self, server_command, docker_command, use_docker):
         """Create an MCP client for testing"""
         command = docker_command if use_docker else server_command

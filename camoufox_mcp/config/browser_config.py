@@ -39,7 +39,12 @@ class CamoufoxConfig:
     persistent_context: bool = False
     user_data_dir: Optional[str] = None
     main_world_eval: bool = True  # Enable DOM manipulation
+    viewport: Optional[Dict[str, int]] = None  # {'width': 1920, 'height': 1080}
     
     # MCP-specific options
     captcha_solver: bool = False
-    output_dir: str = "/tmp/camoufox-mcp"
+    output_dir: str = "/tmp/camoufox-mcp"  # Directory for screenshots and other outputs
+    
+    # Timeout configuration
+    browser_timeout: float = 120.0  # Timeout for browser startup (seconds)
+    context_timeout: float = 60.0   # Timeout for context creation (seconds)

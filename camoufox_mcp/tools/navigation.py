@@ -16,62 +16,77 @@ class NavigationTools:
     
     async def navigate(self, url: str, wait_until: str = "load") -> CallToolResult:
         """Navigate to URL with stealth capabilities"""
+        self.logger.info("[NAVIGATE] Starting navigation to: %s", url)
         try:
-            # Ensure browser is ready
-            await self.server._ensure_browser()
-            
-            self.logger.info("Navigating to: %s", url)
-            
-            # Create new page if needed with shorter timeout
-            if self.server.page is None:
-                with self.server._redirect_stdout_to_stderr():
-                    self.server.page = await asyncio.wait_for(
-                        self.server.browser_context.new_page(),
-                        timeout=15.0
-                    )
-            
-            # Navigate with specified wait condition and reasonable timeout
+            # Wrap the entire browser interaction in the I/O redirector
+            # to capture all output from Camoufox/Playwright setup.
+            self.logger.debug("[NAVIGATE] Entering stdout redirector context")
             with self.server._redirect_stdout_to_stderr():
+                # Ensure browser is ready. This is the single point of truth for browser state.
+                self.logger.info("[NAVIGATE] Calling _ensure_browser()")
+                await self.server._ensure_browser()
+                self.logger.info("[NAVIGATE] Browser ensured successfully")
+
+                if not self.server.page:
+                    self.logger.error("[NAVIGATE] Browser page is None after _ensure_browser")
+                    raise RuntimeError("Browser page could not be initialized.")
+
+                self.logger.info("[NAVIGATE] Browser page ready, navigating to: %s", url)
+                
+                # For data: URLs, 'domcontentloaded' is more reliable.
+                is_data_url = url.strip().startswith("data:")
+                effective_wait_until = "domcontentloaded" if is_data_url else wait_until
+
+                # Navigate with a generous timeout.
+                # Increased timeout to handle slow networks and first-time browser setup
+                self.logger.info("[NAVIGATE] Calling page.goto() with wait_until=%s, timeout=120s", effective_wait_until)
                 await asyncio.wait_for(
-                    self.server.page.goto(url, wait_until=wait_until),
-                    timeout=20.0  # Reduced timeout to prevent session timeouts
+                    self.server.page.goto(url, wait_until=effective_wait_until),
+                    timeout=120.0  # Doubled timeout for reliability
+                )
+                self.logger.info("[NAVIGATE] page.goto() completed successfully")
+
+                # Get page info with a short timeout
+                try:
+                    title = await asyncio.wait_for(self.server.page.title(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    title = "Page title unavailable"
+                
+                current_url = self.server.page.url
+                
+                self.logger.info("[NAVIGATE] Successfully navigated to: %s", current_url)
+                
+                return CallToolResult(
+                    content=[TextContent(
+                        type="text", 
+                        text=f"✅ Navigated to: {current_url}\n📄 Title: {title}\n🛡️ Stealth mode active"
+                    )],
+                    isError=False
                 )
             
-            # Get page info with timeout
-            try:
-                title = await asyncio.wait_for(self.server.page.title(), timeout=3.0)
-            except asyncio.TimeoutError:
-                title = "Page title unavailable"
-            
-            current_url = self.server.page.url
-            
-            self.logger.info("Successfully navigated to: %s", current_url)
-            
-            return CallToolResult(
-                content=[TextContent(
-                    type="text", 
-                    text=f"✅ Navigated to: {current_url}\n📄 Title: {title}\n🛡️ Stealth mode active"
-                )],
-                isError=False
-            )
-            
-        except asyncio.TimeoutError:
-            error_msg = f"❌ Nav to {url} timed out (may occur on 1st run)"
-            self.logger.warning(error_msg)
+        except asyncio.TimeoutError as e:
+            error_msg = f"❌ Navigation timeout to {url} after 120 seconds. This often happens on first run when downloading the browser. Please retry the operation."
+            self.logger.warning(error_msg, exc_info=True)
+            # Critical error: close browser resources to allow a fresh start on the next call.
+            await self.server._close_browser_resources()
             return CallToolResult(
                 content=[TextContent(type="text", text=error_msg)],
                 isError=True
             )
-        except PlaywrightError as e_playwright:
-            self.logger.error("Playwright error navigating to %s: %s", url, e_playwright)
+        except PlaywrightError as e:
+            error_msg = f"❌ Browser error navigating to {url}: {e}"
+            self.logger.warning(error_msg, exc_info=True)
+            # Critical error: close browser resources to allow a fresh start on the next call.
+            await self.server._close_browser_resources()
             return CallToolResult(
-                content=[TextContent(type="text", text=f"PW error nav to {url}: {e_playwright}")],
+                content=[TextContent(type="text", text=error_msg)],
                 isError=True
             )
-        except Exception as e: # Catch-all for other navigation errors
-            self.logger.error("Unexpected error navigating to %s: %s", url, e)
+        except Exception as e:
+            self.logger.error("Unexpected error navigating to %s: %s", url, e, exc_info=True)
+            await self.server._close_browser_resources()
             return CallToolResult(
-                content=[TextContent(type="text", text=f"Error nav to {url}: {e}")],
+                content=[TextContent(type="text", text=f"❌ Unexpected Error during navigation: {e}")],
                 isError=True
             )
     

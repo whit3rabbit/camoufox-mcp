@@ -5,11 +5,9 @@ Provides a clean interface for JSON-RPC communication over STDIO
 
 import asyncio
 import json
-import subprocess
 import logging
 from typing import Dict, Any, Optional, List
 from contextlib import asynccontextmanager
-
 
 class MCPTestClient:
     """Test client for MCP servers using STDIO transport"""
@@ -26,7 +24,7 @@ class MCPTestClient:
         self.command_args = command_args
         self.timeout = timeout
         self.debug = debug
-        self.process: Optional[subprocess.Popen] = None
+        self.process: Optional[asyncio.subprocess.Process] = None  # Use asyncio's Process
         self.request_id = 0
         self.logger = logging.getLogger(__name__)
         
@@ -43,35 +41,35 @@ class MCPTestClient:
             await self.stop()
     
     async def start(self):
-        """Start the MCP server process"""
+        """Start the MCP server process using asyncio."""
         if self.debug:
             self.logger.debug(f"Starting MCP server: {' '.join(self.command_args)}")
         
-        self.process = subprocess.Popen(
-            self.command_args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0
+        self.process = await asyncio.create_subprocess_exec(
+            *self.command_args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
         
-        # Give the server a moment to start
-        await asyncio.sleep(0.5)
+        # Give the server a moment to start and check for immediate errors.
+        # Increased delay to ensure server is fully ready, especially for first-time browser downloads
+        await asyncio.sleep(5.0)
         
-        if self.process.poll() is not None:
-            stderr = self.process.stderr.read() if self.process.stderr else ""
-            raise RuntimeError(f"Server failed to start. stderr: {stderr}")
-    
+        if self.process.returncode is not None:
+            stderr_output = await self.process.stderr.read()
+            raise RuntimeError(f"Server failed to start with exit code {self.process.returncode}. stderr: {stderr_output.decode()}")
+
     async def stop(self):
-        """Stop the MCP server process"""
-        if self.process:
+        """Stop the MCP server process."""
+        if self.process and self.process.returncode is None:
             try:
                 self.process.terminate()
-                await asyncio.sleep(0.1)
-                if self.process.poll() is None:
-                    self.process.kill()
-                self.process.wait(timeout=5)
+                await asyncio.wait_for(self.process.wait(), timeout=5.0)
+                self.logger.debug("Server terminated gracefully.")
+            except asyncio.TimeoutError:
+                self.logger.warning("Server did not terminate gracefully, killing.")
+                self.process.kill()
             except Exception as e:
                 self.logger.warning(f"Error stopping server: {e}")
             finally:
@@ -91,7 +89,7 @@ class MCPTestClient:
         Raises:
             RuntimeError: If the server is not running or request fails
         """
-        if not self.process:
+        if not self.process or not self.process.stdin:
             raise RuntimeError("Server not started")
         
         self.request_id += 1
@@ -104,14 +102,14 @@ class MCPTestClient:
         if params is not None:
             request["params"] = params
         
-        request_json = json.dumps(request)
+        request_json = json.dumps(request) + "\n"
         
         if self.debug:
-            self.logger.debug(f"Sending request: {request_json}")
+            self.logger.debug(f"Sending request: {request_json.strip()}")
         
         # Send request
-        self.process.stdin.write(request_json + "\n")
-        self.process.stdin.flush()
+        self.process.stdin.write(request_json.encode('utf-8'))
+        await self.process.stdin.drain()
         
         # Read response with timeout
         try:
@@ -120,11 +118,13 @@ class MCPTestClient:
                 timeout=self.timeout
             )
         except asyncio.TimeoutError:
-            raise RuntimeError(f"Request timed out after {self.timeout}s")
+            # Check stderr for clues if we time out
+            stderr_output = await self.process.stderr.read()
+            raise RuntimeError(f"Request timed out after {self.timeout}s. Stderr: {stderr_output.decode()}")
         
         if not response_line:
-            stderr = self.process.stderr.read() if self.process.stderr else ""
-            raise RuntimeError(f"No response from server. stderr: {stderr}")
+            stderr_output = await self.process.stderr.read()
+            raise RuntimeError(f"No response from server. Stderr: {stderr_output.decode()}")
         
         try:
             response = json.loads(response_line)
@@ -132,7 +132,7 @@ class MCPTestClient:
             raise RuntimeError(f"Invalid JSON response: {response_line}") from e
         
         if self.debug:
-            self.logger.debug(f"Received response: {response}")
+            self.logger.debug(f"Received response: {json.dumps(response, indent=2)}")
         
         if "error" in response:
             error = response["error"]
@@ -141,14 +141,12 @@ class MCPTestClient:
         return response
     
     async def _read_line(self) -> str:
-        """Read a line from the server's stdout"""
+        """Read a line from the server's stdout asynchronously."""
         if not self.process or not self.process.stdout:
             return ""
         
-        # Use asyncio to read from stdout without blocking
-        loop = asyncio.get_event_loop()
-        line = await loop.run_in_executor(None, self.process.stdout.readline)
-        return line.strip()
+        line = await self.process.stdout.readline()
+        return line.decode('utf-8').strip()
     
     async def initialize(self, client_info: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Initialize the MCP session"""
@@ -161,7 +159,15 @@ class MCPTestClient:
             "clientInfo": client_info
         }
         
-        return await self.send_request("initialize", params)
+        # Use a longer timeout for initialization, especially for Docker
+        # Save current timeout and use a longer one for initialization
+        original_timeout = self.timeout
+        self.timeout = max(120.0, self.timeout)  # At least 120s for initialization
+        try:
+            response = await self.send_request("initialize", params)
+            return response.get("result", {})
+        finally:
+            self.timeout = original_timeout
     
     async def list_tools(self) -> List[Dict[str, Any]]:
         """List available tools"""
@@ -171,7 +177,7 @@ class MCPTestClient:
     async def call_tool(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Call a specific tool"""
         params = {"name": name}
-        if arguments:
+        if arguments is not None:
             params["arguments"] = arguments
         
         response = await self.send_request("tools/call", params)

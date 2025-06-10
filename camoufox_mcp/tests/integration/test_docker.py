@@ -4,6 +4,7 @@ Tests the server running in Docker containers
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import subprocess
 from pathlib import Path
@@ -39,7 +40,7 @@ class TestDockerIntegration:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pytest.skip("Docker not available")
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def docker_client(self, docker_command, check_docker_available):
         """Create an MCP client for Docker testing"""
         client = MCPTestClient(docker_command, timeout=120.0, debug=True)

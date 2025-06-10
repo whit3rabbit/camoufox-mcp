@@ -46,17 +46,22 @@ def main():
     # Create logger and log startup
     logger = logging.getLogger(__name__)
     logger.info("Camoufox MCP Server starting...")
+    logger.info("Command line args: %s", args)
     
     # Build configuration from command line arguments
     config = build_config_from_args(args)
+    logger.info("Configuration built successfully")
     
     # Create and run server
     server = CamoufoxMCPServer(config)
+    logger.info("Server instance created")
     
     if args.port:
+        logger.info("Running in HTTP/SSE mode on port %s", args.port)
         asyncio.run(server.run_sse())
     else:
         # Use FastMCP's async run method for stdio
+        logger.info("Running in STDIO mode")
         asyncio.run(server.run_stdio_async())
 
 

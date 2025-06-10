@@ -50,7 +50,7 @@ class TestNavigationTools:
         
         assert isinstance(result, CallToolResult)
         assert result.isError
-        assert "❌ Nav to https://slow-site.com timed out" in result.content[0].text
+        assert "❌ Navigation timeout to https://slow-site.com" in result.content[0].text
     
     @pytest.mark.asyncio
     async def test_navigate_playwright_error(self, navigation_tools, mock_page):
@@ -62,7 +62,7 @@ class TestNavigationTools:
         
         assert isinstance(result, CallToolResult)
         assert result.isError
-        assert "PW error nav to https://bad-site.com" in result.content[0].text
+        assert "❌ Browser error navigating to https://bad-site.com" in result.content[0].text
     
     @pytest.mark.asyncio
     async def test_wait_for_text_success(self, navigation_tools, mock_page):

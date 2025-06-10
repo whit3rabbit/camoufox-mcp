@@ -211,9 +211,10 @@ class QuickTest:
         """Test basic navigation"""
         print("\n🌐 Testing navigation...")
         try:
+            # Use a data URL instead of external URL to avoid network issues
             result = await self.client.call_tool(
                 "browser_navigate",
-                {"url": "https://example.com"}
+                {"url": "data:text/html,<h1>Test Page</h1><p>Comprehensive test content</p>"}
             )
             self._pass("Navigation successful")
             if result and len(result) > 0:

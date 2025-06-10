@@ -11,12 +11,8 @@ from ..config import Config, CamoufoxConfig, ServerConfig
 from ..server import CamoufoxMCPServer
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Removed session-scoped event_loop fixture to avoid conflicts with pytest-asyncio
+# pytest-asyncio handles event loop creation automatically
 
 
 @pytest.fixture
@@ -55,8 +51,8 @@ def mock_page():
     page.goto = AsyncMock()
     page.click = AsyncMock()
     page.type = AsyncMock()
-    page.locator = AsyncMock()
-    page.get_by_text = AsyncMock()
+    page.locator = Mock()  # Playwright's Page.locator() is synchronous
+    page.get_by_text = Mock()  # Playwright's Page.get_by_text() is synchronous
     page.screenshot = AsyncMock()
     page.evaluate = AsyncMock()
     page.set_geolocation = AsyncMock()
@@ -119,6 +115,8 @@ def integration_config():
             humanize=0.1,  # Minimal humanization for faster tests
             block_images=True,  # Faster loading
             geoip=False,  # Skip GeoIP for faster startup
+            browser_timeout=120.0,  # Increased timeout for browser startup
+            context_timeout=60.0,  # Increased timeout for context creation
         ),
         server=ServerConfig(
             port=None,  # STDIO mode

@@ -4,6 +4,7 @@ Tests real browser interactions with Camoufox
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 from pathlib import Path
 
@@ -22,15 +23,17 @@ class TestBrowserAutomation:
         main_py = project_root / "main.py"
         return ["python", str(main_py), "--headless=true", "--debug"]
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def mcp_client(self, server_command):
         """Create an MCP client for testing"""
-        client = MCPTestClient(server_command, timeout=90.0, debug=True)
+        # Increased timeout to handle first-time browser downloads
+        client = MCPTestClient(server_command, timeout=180.0, debug=True)
         async with client.session():
             await client.initialize()
             yield client
     
     @pytest.mark.asyncio
+    @pytest.mark.timeout(180)  # 3 minute timeout to prevent hanging
     async def test_simple_navigation(self, mcp_client):
         """Test simple page navigation"""
         test_url = "data:text/html,<h1>Simple Test</h1>"
