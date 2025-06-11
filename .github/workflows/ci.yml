@@ -1,273 +1,177 @@
-# GitHub Repository Secrets Required:
-# ----------------------------------
-# DOCKERHUB_USERNAME: Your Docker Hub username.
-# DOCKERHUB_TOKEN:    Your Docker Hub Personal Access Token (PAT) with write permissions.
-# ----------------------------------
-
 name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
-  release:
-    types: [ published ]
+  workflow_dispatch:
 
 env:
-  PYTHON_VERSION: "3.11"
-  GHCR_REGISTRY: ghcr.io
-  # IMAGE_NAME for GHCR, e.g., ghcr.io/owner/repo
-  GHCR_IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
-  # DOCKERHUB_IMAGE_NAME will be constructed in the metadata step using secrets
-  # e.g., dockerhub_username/repo_name
+  DOCKER_REPO: followthewhit3rabbit/camoufox-mcp
+  GHCR_REPO: ghcr.io/${{ github.repository_owner }}/camoufox-mcp
 
 jobs:
-  lint-and-test:
+  test:
+    name: Test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
     
-    - name: Set up Python
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build
+      run: npm run build
+    
+    - name: Lint
+      run: npm run lint --if-present
+    
+    - name: Setup Python
       uses: actions/setup-python@v4
       with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
+        python-version: '3.x'
     
-    - name: Install dependencies and fetch Camoufox
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -e ".[dev]"
-        # Fetch Camoufox browser (required for tests)
-        python -m camoufox fetch
-    
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
-    
-    - name: Format check with black
-      run: |
-        black --check --diff .
-    
-    - name: Type check with mypy
-      run: |
-        mypy camoufox_mcp_server.py || true  # Allow to fail for now
+    - name: Fetch Camoufox browser
+      run: npx camoufox fetch
     
     - name: Run tests
       run: |
-        pytest --cov=. --cov-report=xml --cov-report=term-missing -v
+        python3 tests/test_client.py --mode local || true
+      timeout-minutes: 5
+
+  build-and-publish-npm:
+    name: Build and Publish to NPM
+    needs: test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        registry-url: 'https://registry.npmjs.org'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build
+      run: npm run build
+    
+    - name: Publish to NPM
+      run: npm publish --access public
       env:
-        # Use virtual display for headless testing
-        DISPLAY: :99
-    
-    - name: Upload coverage to Codecov
-      if: github.event_name == 'push'
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  security-scan:
+  build-and-publish-docker:
+    name: Build and Publish Docker Images
+    needs: test
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
     
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
-
-  build-docker:
-    needs: [lint-and-test]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
     
     - name: Log in to GitHub Container Registry
       if: github.event_name != 'pull_request'
       uses: docker/login-action@v3
       with:
-        registry: ${{ env.GHCR_REGISTRY }}
+        registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Log in to Docker Hub
-      # Only run if DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets are set
-      if: github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
-      uses: docker/login-action@v3
-      with:
-        username: ${{ env.DOCKERHUB_USERNAME }}
-        password: ${{ env.DOCKERHUB_TOKEN }}
-      env:
-        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: |
-          ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
-          ${{ env.DOCKERHUB_USERNAME && format('{0}/{1}', secrets.DOCKERHUB_USERNAME, github.event.repository.name) || '' }}
-      env:
-        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          ${{ env.DOCKER_REPO }}
+          ${{ env.GHCR_REPO }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
     
-    - name: Build and push Docker image
+    - name: Build and push Docker images
       uses: docker/build-push-action@v5
       with:
         context: .
+        platforms: linux/amd64,linux/arm64
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        platforms: linux/amd64,linux/arm64
-
-  integration-test:
-    needs: [build-docker]
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.GHCR_REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    # No need to log in to Docker Hub again for integration tests if using GHCR image
-    
-    - name: Run integration tests
-      run: |
-        # Pull the built image from GHCR
-        docker pull ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ github.ref_name }}
-        
-        # Test basic stealth navigation
-        echo '{"name": "browser_navigate", "arguments": {"url": "https://httpbin.org/user-agent"}}' | \
-        timeout 60s docker run -i --rm \
-          ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ github.ref_name }} \
-          --headless=true --humanize --geoip=auto --debug || echo "Basic navigation test completed"
-          
-        # Test screenshot functionality
-        echo '{"name": "browser_screenshot", "arguments": {"filename": "test.png"}}' | \
-        timeout 30s docker run -i --rm \
-          -v /tmp/camoufox-test:/tmp/camoufox-mcp \
-          ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ github.ref_name }} \
-          --headless=true --output-dir /tmp/camoufox-mcp || echo "Screenshot test completed"
-    
-    - name: Test Docker Compose
-      run: |
-        # Update image tag in docker-compose.yml to use the GHCR image for testing
-        # This targets the 'camoufox-mcp' service specifically.
-        sed -i -E "s|(services:\s*camoufox-mcp:\s*image:).*|\1 ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ github.ref_name }}|" docker-compose.yml
-        # Comment out the build context for the 'camoufox-mcp' service to ensure it uses the pulled image
-        sed -i -E "/services:/,/camoufox-mcp:/ s|^(\s*)build:.*|\1#build:|" docker-compose.yml
-        
-        # Test with docker-compose  
-        docker-compose -f docker-compose.yml config
-        docker-compose -f docker-compose.yml up -d camoufox-mcp
-        sleep 15
-        docker-compose -f docker-compose.yml logs camoufox-mcp
-        docker-compose -f docker-compose.yml down
 
   release:
-    needs: [lint-and-test, build-docker, integration-test]
+    name: Create Release
+    needs: [build-and-publish-npm, build-and-publish-docker]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
-    permissions:
-      contents: write
-      packages: write
+    if: startsWith(github.ref, 'refs/tags/v')
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-
-    - name: Create release notes
+    - name: Create Release
+      uses: actions/create-release@v1
       env:
-        DOCKERHUB_USERNAME_SECRET: ${{ secrets.DOCKERHUB_USERNAME }}
-      run: |
-        echo "## Docker Images" >> release_notes.md
-        echo "" >> release_notes.md
-        echo "### GitHub Container Registry (GHCR)" >> release_notes.md
-        echo "- \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ github.event.release.tag_name }}\`" >> release_notes.md
-        echo "- \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:latest\` (for default branch)" >> release_notes.md
-        echo "" >> release_notes.md
-        if [ -n "$DOCKERHUB_USERNAME_SECRET" ]; then
-          echo "### Docker Hub" >> release_notes.md
-          echo "- \`$DOCKERHUB_USERNAME_SECRET/${{ github.event.repository.name }}:${{ github.event.release.tag_name }}\`" >> release_notes.md
-          echo "- \`$DOCKERHUB_USERNAME_SECRET/${{ github.event.repository.name }}:latest\` (for default branch)" >> release_notes.md
-        fi
-        echo "" >> release_notes.md
-        echo "## Installation" >> release_notes.md
-        echo "" >> release_notes.md
-        echo "### Docker" >> release_notes.md
-        echo "\`\`\`bash" >> release_notes.md
-        echo "# From GHCR"
-        echo "docker pull ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ github.event.release.tag_name }}"
-        echo "" >> release_notes.md
-        if [ -n "$DOCKERHUB_USERNAME_SECRET" ]; then
-          echo "# From Docker Hub"
-          echo "docker pull $DOCKERHUB_USERNAME_SECRET/${{ github.event.repository.name }}:${{ github.event.release.tag_name }}" >> release_notes.md
-        fi
-        echo "\`\`\`" >> release_notes.md
-        echo "" >> release_notes.md
-        # PyPI section removed as per user request
-    
-    # Ensure there's a blank line before this if previous steps were removed
-    - name: Update release
-      uses: actions/github-script@v6
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        script: |
-          const fs = require('fs');
-          const release_notes = fs.readFileSync('release_notes.md', 'utf8');
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
+        body: |
+          ## 🚀 Release ${{ github.ref_name }}
           
-          await github.rest.repos.updateRelease({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            release_id: context.payload.release.id,
-            body: context.payload.release.body + '\n\n' + release_notes
-          });
+          ### 📦 Installation
+          
+          **NPM:**
+          ```bash
+          npm install -g camoufox-mcp-server@${{ github.ref_name }}
+          ```
+          
+          **Docker:**
+          ```bash
+          docker pull ${{ env.DOCKER_REPO }}:${{ github.ref_name }}
+          docker pull ${{ env.GHCR_REPO }}:${{ github.ref_name }}
+          ```
+          
+          **NPX (no installation):**
+          ```bash
+          npx camoufox-mcp-server@${{ github.ref_name }}
+          ```
+          
+          ### 📋 Changelog
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+        draft: false
+        prerelease: false

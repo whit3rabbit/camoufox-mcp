@@ -138,3 +138,7 @@ dist
 # Claude
 CLAUDE.md
 .claude
+
+# Project specific
+data-files/
+.DS_Store

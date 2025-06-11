@@ -1,0 +1,41 @@
+# Source files
+src/
+*.ts
+!dist/**/*.d.ts
+
+# Test files
+tests/
+test_*.py
+*.test.js
+*.test.ts
+
+# Configuration files
+.github/
+.gitignore
+.dockerignore
+tsconfig.json
+eslint.config.mjs
+Dockerfile
+docker-compose.yml
+build_docker.sh
+
+# Development files
+node_modules/
+*.log
+.DS_Store
+.env
+.vscode/
+.idea/
+
+# Build artifacts not needed
+*.map
+
+# Documentation source
+TODO.md
+CHANGELOG.md
+
+# Keep only essentials
+!README.md
+!LICENSE
+!package.json
+!dist/

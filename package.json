@@ -1,23 +1,50 @@
 {
     "name": "camoufox-mcp-server",
     "version": "1.0.0",
-    "description": "MCP server for browser automation using Camoufox",
+    "description": "MCP server for browser automation using Camoufox - a privacy-focused Firefox fork with advanced anti-detection features",
+    "keywords": ["mcp", "camoufox", "browser", "automation", "anti-detection", "fingerprint", "spoofing", "modelcontextprotocol"],
+    "author": "followthewhit3rabbit",
     "license": "MIT",
     "type": "module",
     "main": "dist/index.js",
+    "bin": {
+        "camoufox-mcp-server": "./dist/index.js"
+    },
+    "files": [
+        "dist/**/*",
+        "README.md",
+        "LICENSE"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/whit3rabbit/camoufox-mcp.git"
+    },
+    "bugs": {
+        "url": "https://github.com/whit3rabbit/camoufox-mcp/issues"
+    },
+    "homepage": "https://github.com/whit3rabbit/camoufox-mcp#readme",
+    "engines": {
+        "node": ">=18.0.0"
+    },
     "scripts": {
-      "build": "rimraf dist && tsc",
-      "start": "node dist/index.js",
-      "dev": "tsc --watch"
+        "build": "rimraf dist && tsc",
+        "start": "node dist/index.js",
+        "dev": "tsc --watch",
+        "test:camoufox": "node test-camoufox.js",
+        "test": "npm run build && python3 test_client_local.py"
     },
     "dependencies": {
-      "@modelcontextprotocol/sdk": "^1.12.1",
-      "camoufox-js": "^0.4.0",
-      "chalk": "^5.4.1"
+        "@modelcontextprotocol/sdk": "^1.12.1",
+        "camoufox-js": "^0.4.0",
+        "chalk": "^5.4.1",
+        "zod": "^3.23.8"
     },
     "devDependencies": {
-      "@types/node": "^22",
-      "rimraf": "^5.0.5",
-      "typescript": "^5.3.3"
+        "@eslint/js": "^9.28.0",
+        "@types/node": "^22",
+        "eslint": "^9.28.0",
+        "rimraf": "^5.0.5",
+        "typescript": "^5.8.3",
+        "typescript-eslint": "^8.34.0"
     }
-  }
+}

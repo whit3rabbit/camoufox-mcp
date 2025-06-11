@@ -2,11 +2,11 @@
 set -e
 
 DOCKER_REPO="followthewhit3rabbit/camoufox-mcp"
-CAMOUFOX_VERSION="v135.0.1-beta.24"
+VERSION="v1.1.0"
 
 echo "🚀 Building multi-architecture Camoufox MCP Server"
 echo "Repository: $DOCKER_REPO"
-echo "Version: $CAMOUFOX_VERSION"
+echo "Version: $VERSION"
 echo
 
 # Check if buildx is available
@@ -34,14 +34,14 @@ echo "This will take several minutes as it builds for both architectures..."
 
 docker buildx build \
     --platform linux/amd64,linux/arm64 \
-    -t "$DOCKER_REPO:$CAMOUFOX_VERSION" \
+    -t "$DOCKER_REPO:$VERSION" \
     -t "$DOCKER_REPO:latest" \
     --push \
     .
 
 echo
 echo "🎉 Successfully published multi-architecture images!"
-echo "  ✅ $DOCKER_REPO:$CAMOUFOX_VERSION"
+echo "  ✅ $DOCKER_REPO:$VERSION"
 echo "  ✅ $DOCKER_REPO:latest"
 echo
 echo "Users can now run:"

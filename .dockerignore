@@ -1,22 +1,28 @@
 # .dockerignore
-
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Dependency directories
 node_modules
-jspm_packages
-
-# Build directory
+npm-debug.log
 dist
-dist-ssr
-
-# Misc
-.DS_Store
-.npm
+.git
+.gitignore
+README.md
 .env
+.env.*
+.DS_Store
+*.log
+.vscode
 .idea
+coverage
+.nyc_output
+.cache
+*.test.js
+*.spec.js
+__tests__
+test
+tests
+coverage
+.nyc_output
+test_client_local.py
+run_tests_local.sh
+README.md
+LICENSE
+tsconfig.tsbuildinfo
