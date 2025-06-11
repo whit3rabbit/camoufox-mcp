@@ -144,4 +144,4 @@ data-files/
 .DS_Store
 TODO.md
 CHANGELOG.md
-build_docker.sh
+publish_docker.sh
