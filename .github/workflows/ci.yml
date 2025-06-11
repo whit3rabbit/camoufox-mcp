@@ -140,6 +140,8 @@ jobs:
     needs: [build-and-publish-npm, build-and-publish-docker]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     
     steps:
     - uses: actions/checkout@v4

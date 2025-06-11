@@ -25,6 +25,14 @@ The easiest way to use Camoufox MCP Server is with npx (no installation required
 npx camoufox-mcp-server
 ```
 
+### Claude Code
+
+Run the following command:
+
+```bash
+claude mcp add context7 -- npx -y camoufox-mcp-server
+```
+
 ### Docker Installation
 
 Run the server using Docker:
@@ -49,7 +57,8 @@ npm install camoufox-mcp-server
 
 ## Configuration for AI Assistants
 
-### Claude Desktop
+<details>
+<summary>Claude Desktop</summary>
 
 Add to your Claude Desktop configuration file:
 
@@ -91,8 +100,10 @@ Add to your Claude Desktop configuration file:
   }
 }
 ```
+</details>
 
-### VS Code (with Continue extension)
+<details>
+<summary>VS Code (with Continue extension)</summary>
 
 Add to your `.continue/config.json`:
 
@@ -107,8 +118,10 @@ Add to your `.continue/config.json`:
   }
 }
 ```
+</details>
 
-### Cursor
+<details>
+<summary>Cursor</summary>
 
 Add to your Cursor settings (Preferences → Features → MCP):
 
@@ -124,8 +137,10 @@ Add to your Cursor settings (Preferences → Features → MCP):
   }
 }
 ```
+</details>
 
-### Windsurf
+<details>
+<summary>Windsurf</summary>
 
 Add to your Windsurf configuration file at `~/.windsurf/mcp.json`:
 
@@ -139,8 +154,10 @@ Add to your Windsurf configuration file at `~/.windsurf/mcp.json`:
   }
 }
 ```
+</details>
 
-### Cline (VS Code Extension)
+<details>
+<summary>Cline (VS Code Extension)</summary>
 
 Add to VS Code settings.json:
 
@@ -154,6 +171,7 @@ Add to VS Code settings.json:
   }
 }
 ```
+</details>
 
 ## Usage
 
