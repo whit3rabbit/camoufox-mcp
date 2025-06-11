@@ -1,6 +1,6 @@
 {
     "name": "camoufox-mcp-server",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "MCP server for browser automation using Camoufox - a privacy-focused Firefox fork with advanced anti-detection features",
     "keywords": ["mcp", "camoufox", "browser", "automation", "anti-detection", "fingerprint", "spoofing", "modelcontextprotocol"],
     "author": "followthewhit3rabbit",

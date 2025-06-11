@@ -10,6 +10,11 @@ An MCP (Model Context Protocol) server that provides browser automation capabili
 - 📸 **Screenshot Support**: Capture page screenshots alongside HTML content
 - 🚀 **Easy Integration**: Compatible with Claude Desktop, VS Code, Cursor, Windsurf, and more
 
+## Requirements
+
+- Node.js 18 or higher (Node.js 20+ recommended for full camoufox CLI support)
+- Python 3.x (for running tests)
+
 ## Installation
 
 ### Quick Start with npx

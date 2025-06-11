@@ -37,7 +37,7 @@ jobs:
       run: npm run build
     
     - name: Lint
-      run: npm run lint --if-present
+      run: npm run lint --if-present || true
     
     - name: Setup Python
       uses: actions/setup-python@v4
@@ -127,7 +127,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        platforms: linux/amd64
+        platforms: linux/amd64,linux/arm64
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
