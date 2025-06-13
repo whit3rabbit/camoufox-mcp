@@ -13,14 +13,21 @@ interface CamoufoxOptions {
   ublock?: boolean;
   block_webgl?: boolean;
   block_images?: boolean;
+  block_webrtc?: boolean;
   locale?: string;
   viewport?: { width: number; height: number };
+  proxy?: string | { server: string; username?: string; password?: string };
+  enable_cache?: boolean;
+  firefox_user_prefs?: Record<string, any>;
+  exclude_addons?: string[];
+  window?: [number, number];
+  args?: string[];
 }
 
 // Initialize the MCP server
 const server = new McpServer({
   name: "camoufox-mcp-server",
-  version: "1.0.0",
+  version: "1.2.0",
 });
 
 // Define the browse tool with enhanced parameters
@@ -38,8 +45,25 @@ server.tool(
       height: z.number().min(240).max(2160).default(1080)
     }).optional().describe("Custom viewport dimensions."),
     screenshot: z.boolean().optional().default(false).describe("Capture a screenshot of the page after loading."),
+    block_webrtc: z.boolean().optional().default(false).describe("Block WebRTC entirely for enhanced privacy."),
+    proxy: z.union([
+      z.string().describe("Proxy URL (e.g., 'http://proxy.example.com:8080')"),
+      z.object({
+        server: z.string().describe("Proxy server URL"),
+        username: z.string().optional().describe("Proxy username for authentication"),
+        password: z.string().optional().describe("Proxy password for authentication")
+      })
+    ]).optional().describe("Proxy configuration for the browser."),
+    enable_cache: z.boolean().optional().default(false).describe("Cache pages, requests, etc. Uses more memory but improves performance when revisiting pages."),
+    firefox_user_prefs: z.record(z.any()).optional().describe("Custom Firefox user preferences to set."),
+    exclude_addons: z.array(z.string()).optional().describe("List of default addons to exclude (e.g., ['ublock_origin'])."),
+    window: z.tuple([
+      z.number().min(320).max(3840),
+      z.number().min(240).max(2160)
+    ]).optional().describe("Set fixed window size [width, height] instead of random generation."),
+    args: z.array(z.string()).optional().describe("Additional command-line arguments to pass to the browser."),
   },
-  async ({ url, os, waitStrategy, timeout, humanize, locale, viewport, screenshot }) => {
+  async ({ url, os, waitStrategy, timeout, humanize, locale, viewport, screenshot, block_webrtc, proxy, enable_cache, firefox_user_prefs, exclude_addons, window, args }) => {
     let browser;
 
     try {
@@ -62,11 +86,18 @@ server.tool(
         ublock: true, // Keep uBlock Origin for better stealth
         block_webgl: false, // Don't block WebGL to avoid detection
         block_images: false, // Don't block images to avoid detection
+        block_webrtc: block_webrtc,
         locale: locale,
         viewport: viewport ? {
           width: viewport.width,
           height: viewport.height
         } : undefined,
+        proxy: proxy,
+        enable_cache: enable_cache,
+        firefox_user_prefs: firefox_user_prefs,
+        exclude_addons: exclude_addons,
+        window: window,
+        args: args,
       } as CamoufoxOptions); // Type assertion to handle incomplete type definitions
 
       const page = await browser.newPage();
@@ -85,7 +116,7 @@ server.tool(
         }
       }
 
-      console.error(chalk.green(`[Camoufox] Successfully retrieved content from ${url} using OS: ${selectedOS}, wait strategy: ${waitStrategy}.`));
+      console.error(chalk.green(`[Camoufox] Successfully retrieved content from ${url} using OS: ${selectedOS}, wait strategy: ${waitStrategy}${proxy ? ', proxy: enabled' : ''}${block_webrtc ? ', WebRTC: blocked' : ''}.`));
 
       const content: any[] = [{
         type: "text" as const,

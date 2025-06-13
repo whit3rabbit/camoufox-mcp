@@ -15,47 +15,17 @@ An MCP (Model Context Protocol) server that provides browser automation capabili
 - Node.js 18 or higher (Node.js 20+ recommended for full camoufox CLI support)
 - Python 3.x (for running tests)
 
-## Installation
+## Configuration for AI Assistants
 
-### Quick Start with npx
+<details>
+<summary>Claude Code (CLI)</summary>
 
-The easiest way to use Camoufox MCP Server is with npx (no installation required):
-
-```bash
-npx camoufox-mcp-server
-```
-
-### Claude Code
-
-Run the following command:
+Run the following command to add the Camoufox MCP server to Claude Code:
 
 ```bash
 claude mcp add context7 -- npx -y camoufox-mcp-server
 ```
-
-### Docker Installation
-
-Run the server using Docker:
-
-```bash
-docker run -i --rm ghcr.io/whit3rabbit/camoufox-mcp:latest
-```
-
-### NPM Installation
-
-Install globally:
-
-```bash
-npm install -g camoufox-mcp-server
-```
-
-Or add to your project:
-
-```bash
-npm install camoufox-mcp-server
-```
-
-## Configuration for AI Assistants
+</details>
 
 <details>
 <summary>Claude Desktop</summary>
@@ -173,6 +143,38 @@ Add to VS Code settings.json:
 ```
 </details>
 
+## Installation
+
+### Quick Start with npx
+
+The easiest way to use Camoufox MCP Server is with npx (no installation required):
+
+```bash
+npx camoufox-mcp-server
+```
+
+### Docker Installation
+
+Run the server using Docker:
+
+```bash
+docker run -i --rm ghcr.io/whit3rabbit/camoufox-mcp:latest
+```
+
+### NPM Installation
+
+Install globally:
+
+```bash
+npm install -g camoufox-mcp-server
+```
+
+Or add to your project:
+
+```bash
+npm install camoufox-mcp-server
+```
+
 ## Usage
 
 Once configured, the Camoufox MCP server provides a `browse` tool that your AI assistant can use to navigate websites and retrieve content.
@@ -199,6 +201,22 @@ The AI can use advanced parameters like:
 - `screenshot`: Capture a screenshot
 - `humanize`: Enable realistic mouse movements
 - `locale`: Set browser locale (e.g., 'en-US', 'fr-FR')
+- `block_webrtc`: Block WebRTC for privacy
+- `proxy`: Use a proxy server for requests
+- `enable_cache`: Enable browser caching
+- `window`: Set fixed window size
+
+### Example with Privacy Options
+
+```
+Browse example.com with WebRTC blocked and through a proxy server proxy.example.com:8080
+```
+
+### Example with Custom Preferences
+
+```
+Visit example.com with a fixed 1280x720 window size and custom Firefox preferences to disable JavaScript
+```
 
 ## Tool Parameters
 
@@ -214,6 +232,13 @@ The `browse` tool accepts the following parameters:
 | `locale` | string | system default | Browser locale (e.g., 'en-US') |
 | `viewport` | object | {width: 1920, height: 1080} | Browser viewport dimensions |
 | `screenshot` | boolean | false | Capture a screenshot of the page |
+| `block_webrtc` | boolean | false | Block WebRTC entirely for enhanced privacy |
+| `proxy` | string/object | none | Proxy configuration (URL string or object with server/username/password) |
+| `enable_cache` | boolean | false | Cache pages and requests (uses more memory) |
+| `firefox_user_prefs` | object | none | Custom Firefox user preferences |
+| `exclude_addons` | array | none | List of default addons to exclude |
+| `window` | array | random | Fixed window size [width, height] instead of random |
+| `args` | array | none | Additional browser command-line arguments |
 
 ## Development
 
