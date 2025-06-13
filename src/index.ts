@@ -5,33 +5,61 @@ import { z } from "zod";
 import { Camoufox } from "camoufox-js";
 import chalk from "chalk";
 
+/**
+ * Configuration options for Camoufox browser instance
+ * @interface CamoufoxOptions
+ */
 interface CamoufoxOptions {
+  /** Array of operating systems to spoof for fingerprinting */
   os?: string[];
+  /** Headless mode: true for standard, 'virtual' for Xvfb, false for GUI */
   headless?: boolean | 'virtual';
+  /** Enable realistic human-like cursor movements and behavior */
   humanize?: boolean;
+  /** Auto-detect geolocation based on IP address */
   geoip?: boolean;
+  /** Enable uBlock Origin for enhanced privacy */
   ublock?: boolean;
+  /** Block WebGL to prevent fingerprinting */
   block_webgl?: boolean;
+  /** Block all images for faster loading */
   block_images?: boolean;
+  /** Block WebRTC entirely for enhanced privacy */
   block_webrtc?: boolean;
+  /** Disable Cross-Origin-Opener-Policy for iframe interaction */
   disable_coop?: boolean;
+  /** Browser locale setting (e.g., 'en-US') */
   locale?: string;
+  /** Viewport dimensions configuration */
   viewport?: { width: number; height: number };
+  /** Proxy configuration: string URL or object with authentication */
   proxy?: string | { server: string; username?: string; password?: string };
+  /** Enable browser caching for improved performance */
   enable_cache?: boolean;
-  firefox_user_prefs?: Record<string, any>;
+  /** Custom Firefox user preferences */
+  firefox_user_prefs?: Record<string, unknown>;
+  /** List of default addons to exclude */
   exclude_addons?: string[];
+  /** Fixed window size [width, height] */
   window?: [number, number];
+  /** Additional browser command-line arguments */
   args?: string[];
 }
 
-// Initialize the MCP server
+/**
+ * Initialize the MCP (Model Context Protocol) server with Camoufox browsing capabilities
+ * Provides privacy-focused web browsing with anti-detection features
+ */
 const server = new McpServer({
   name: "camoufox-mcp-server",
   version: "1.3.0",
 });
 
-// Define the browse tool with enhanced parameters
+/**
+ * Define the browse tool with comprehensive privacy and anti-detection parameters
+ * This tool allows AI assistants to navigate websites while maintaining user privacy
+ * and avoiding bot detection through various stealth techniques.
+ */
 server.tool(
   "browse",
   {
@@ -69,21 +97,46 @@ server.tool(
     geoip: z.boolean().optional().default(true).describe("Automatically detect geolocation based on IP address."),
     headless: z.boolean().optional().describe("Run browser in headless mode. Auto-detects best mode for environment if not specified."),
   },
+  /**
+   * Browse tool handler function
+   * @param params - Object containing all browsing parameters
+   * @param params.url - Target URL to navigate to
+   * @param params.os - Operating system to spoof
+   * @param params.waitStrategy - Page load wait strategy
+   * @param params.timeout - Page load timeout in milliseconds
+   * @param params.humanize - Enable human-like behavior
+   * @param params.locale - Browser locale setting
+   * @param params.viewport - Custom viewport dimensions
+   * @param params.screenshot - Capture screenshot after loading
+   * @param params.block_webrtc - Block WebRTC for privacy
+   * @param params.proxy - Proxy configuration
+   * @param params.enable_cache - Enable browser caching
+   * @param params.firefox_user_prefs - Custom Firefox preferences
+   * @param params.exclude_addons - Addons to exclude
+   * @param params.window - Fixed window size
+   * @param params.args - Additional browser arguments
+   * @param params.block_images - Block image loading
+   * @param params.block_webgl - Block WebGL
+   * @param params.disable_coop - Disable Cross-Origin-Opener-Policy
+   * @param params.geoip - Auto-detect geolocation
+   * @param params.headless - Headless mode setting
+   * @returns Promise resolving to content with HTML and optional screenshot
+   */
   async ({ url, os, waitStrategy, timeout, humanize, locale, viewport, screenshot, block_webrtc, proxy, enable_cache, firefox_user_prefs, exclude_addons, window, args, block_images, block_webgl, disable_coop, geoip, headless }) => {
     let browser;
 
     try {
       console.error(chalk.blue(`[Camoufox] Launching browser to browse: ${url}`));
       
-      // Detect if we're running in Docker/Linux or locally
+      // Detect if we're running in Docker/Linux or locally for optimal headless mode
       const isLinux = process.platform === 'linux';
-      const headlessMode = headless !== undefined ? headless : (isLinux ? 'virtual' : true); // Use specified mode or auto-detect
+      const headlessMode = headless !== undefined ? headless : (isLinux ? 'virtual' : true);
       
-      // Auto-rotate OS if not specified for better anti-detection
+      // Auto-rotate OS fingerprint if not specified for better anti-detection
       const osOptions = ["windows", "macos", "linux"];
       const selectedOS = os || osOptions[Math.floor(Math.random() * osOptions.length)];
       
-      // Launch Camoufox with enhanced anti-detection options
+      // Launch Camoufox browser with comprehensive anti-detection and privacy settings
       browser = await Camoufox({
         os: [selectedOS], // Pass as array for BrowserForge rotation
         headless: headlessMode,
@@ -112,6 +165,7 @@ server.tool(
       
       const pageContent = await page.content(); // Get the full HTML content
       
+      // Capture screenshot if requested, with error handling
       let screenshotBase64;
       if (screenshot) {
         try {
@@ -123,6 +177,7 @@ server.tool(
         }
       }
 
+      // Build feature summary for logging
       const features = [
         `OS: ${selectedOS}`,
         `wait: ${waitStrategy}`,
@@ -136,19 +191,16 @@ server.tool(
       
       console.error(chalk.green(`[Camoufox] Successfully retrieved content from ${url} (${features}).`));
 
-      const content: any[] = [{
+      const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [{
         type: "text" as const,
         text: pageContent // Return the HTML content
       }];
       
       if (screenshotBase64) {
         content.push({
-          type: "image" as any,
-          source: {
-            type: "base64" as const,
-            media_type: "image/png" as const,
-            data: screenshotBase64
-          }
+          type: "image",
+          data: screenshotBase64,
+          mimeType: "image/png"
         });
       }
 
@@ -174,7 +226,11 @@ server.tool(
   }
 );
 
-// Main function to start the server
+/**
+ * Main function to start the MCP server with stdio transport
+ * Handles server initialization and connection setup
+ * @throws {Error} When server initialization fails
+ */
 async function runServer() {
   try {
     const transport = new StdioServerTransport();
@@ -186,23 +242,40 @@ async function runServer() {
   }
 }
 
-// Handle process termination gracefully
+/**
+ * Handle process termination gracefully on SIGINT (Ctrl+C)
+ * Ensures clean shutdown when user interrupts the process
+ */
 process.on('SIGINT', () => {
   console.error(chalk.yellow('\n[Camoufox] Shutting down server...'));
   process.exit(0);
 });
 
+/**
+ * Handle process termination gracefully on SIGTERM
+ * Ensures clean shutdown when process is terminated by system
+ */
 process.on('SIGTERM', () => {
   console.error(chalk.yellow('\n[Camoufox] Shutting down server...'));
   process.exit(0);
 });
 
-// Handle uncaught errors
+/**
+ * Handle uncaught exceptions to prevent silent failures
+ * Logs error details and exits with error code
+ * @param error - The uncaught exception
+ */
 process.on('uncaughtException', (error) => {
   console.error(chalk.red('[Camoufox] Uncaught exception:', error));
   process.exit(1);
 });
 
+/**
+ * Handle unhandled promise rejections
+ * Prevents silent failures from unhandled async operations
+ * @param reason - Rejection reason
+ * @param promise - The rejected promise
+ */
 process.on('unhandledRejection', (reason, promise) => {
   console.error(chalk.red('[Camoufox] Unhandled rejection at:', promise, 'reason:', reason));
   process.exit(1);
