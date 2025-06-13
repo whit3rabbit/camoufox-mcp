@@ -35,18 +35,18 @@ const server = new McpServer({
 server.tool(
   "browse",
   {
-    url: z.string().describe("The URL to navigate to. Must be a fully qualified URL (e.g., 'https://example.com')."),
+    url: z.string().describe("The URL to navigate to and retrieve content from. Use this tool when users ask to visit, check, search, navigate, browse, fetch, or scrape websites. Must be a fully qualified URL (e.g., 'https://example.com')."),
     os: z.enum(["windows", "macos", "linux"]).optional().describe("Optional OS to spoof. Can be 'windows', 'macos', or 'linux'. If not specified, will rotate between all OS types."),
     waitStrategy: z.enum(["domcontentloaded", "load", "networkidle"]).optional().default("domcontentloaded").describe("Wait strategy for page load. 'domcontentloaded' waits for DOM, 'load' waits for all resources, 'networkidle' waits for network activity to finish."),
     timeout: z.number().min(5000).max(300000).optional().default(60000).describe("Timeout in milliseconds for page load (5-300 seconds)."),
-    humanize: z.boolean().optional().default(true).describe("Enable realistic cursor movements and human-like behavior."),
+    humanize: z.boolean().optional().default(true).describe("Enable realistic cursor movements and human-like behavior for better stealth and anti-detection. Helps avoid bot detection by simulating natural user interactions."),
     locale: z.string().optional().describe("Browser locale (e.g., 'en-US', 'fr-FR')."),
     viewport: z.object({
       width: z.number().min(320).max(3840).default(1920),
       height: z.number().min(240).max(2160).default(1080)
     }).optional().describe("Custom viewport dimensions."),
-    screenshot: z.boolean().optional().default(false).describe("Capture a screenshot of the page after loading."),
-    block_webrtc: z.boolean().optional().default(false).describe("Block WebRTC entirely for enhanced privacy."),
+    screenshot: z.boolean().optional().default(false).describe("Capture a screenshot/image of the page after loading. Use when users ask to take a screenshot, capture an image, show them visually, or want to see how the page looks."),
+    block_webrtc: z.boolean().optional().default(true).describe("Block WebRTC entirely for enhanced privacy and stealth. Use when users want private browsing, to hide their real IP, prevent WebRTC leaks, or browse in stealth mode."),
     proxy: z.union([
       z.string().describe("Proxy URL (e.g., 'http://proxy.example.com:8080')"),
       z.object({
@@ -54,7 +54,7 @@ server.tool(
         username: z.string().optional().describe("Proxy username for authentication"),
         password: z.string().optional().describe("Proxy password for authentication")
       })
-    ]).optional().describe("Proxy configuration for the browser."),
+    ]).optional().describe("Proxy configuration for anonymous browsing. Use when users want to browse through a proxy, hide their IP, browse anonymously, or access content via a specific server location."),
     enable_cache: z.boolean().optional().default(false).describe("Cache pages, requests, etc. Uses more memory but improves performance when revisiting pages."),
     firefox_user_prefs: z.record(z.any()).optional().describe("Custom Firefox user preferences to set."),
     exclude_addons: z.array(z.string()).optional().describe("List of default addons to exclude (e.g., ['ublock_origin'])."),
@@ -63,9 +63,9 @@ server.tool(
       z.number().min(240).max(2160)
     ]).optional().describe("Set fixed window size [width, height] instead of random generation."),
     args: z.array(z.string()).optional().describe("Additional command-line arguments to pass to the browser."),
-    block_images: z.boolean().optional().default(false).describe("Block all images for faster loading and reduced bandwidth usage."),
-    block_webgl: z.boolean().optional().default(false).describe("Block WebGL to prevent fingerprinting. Only use for special cases as it may cause detection."),
-    disable_coop: z.boolean().optional().default(false).describe("Disable Cross-Origin-Opener-Policy, allowing clicks on elements in cross-origin iframes."),
+    block_images: z.boolean().optional().default(false).describe("Block all images for faster loading, reduced bandwidth, and lightweight browsing. Use when users want quick/fast browsing, text-only content, or to save bandwidth."),
+    block_webgl: z.boolean().optional().default(false).describe("Block WebGL to prevent fingerprinting and tracking. Use for maximum privacy/stealth mode, but note it may cause detection on some sites that rely heavily on WebGL."),
+    disable_coop: z.boolean().optional().default(false).describe("Disable Cross-Origin-Opener-Policy to allow interaction with iframes and cross-origin content. Use when users need to click elements in iframes or access embedded content."),
     geoip: z.boolean().optional().default(true).describe("Automatically detect geolocation based on IP address."),
     headless: z.boolean().optional().describe("Run browser in headless mode. Auto-detects best mode for environment if not specified."),
   },

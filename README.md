@@ -54,7 +54,7 @@ Add to your Claude Desktop configuration file:
   "mcpServers": {
     "camoufox": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "ghcr.io/whit3rabbit/camoufox-mcp:latest"]
+      "args": ["run", "-i", "--rm", "followthewhit3rabbit/camoufox-mcp:latest"]
     }
   }
 }
@@ -158,7 +158,7 @@ npx camoufox-mcp-server
 Run the server using Docker:
 
 ```bash
-docker run -i --rm ghcr.io/whit3rabbit/camoufox-mcp:latest
+docker run -i --rm followthewhit3rabbit/camoufox-mcp:latest
 ```
 
 ### NPM Installation
@@ -179,18 +179,81 @@ npm install camoufox-mcp-server
 
 Once configured, the Camoufox MCP server provides a `browse` tool that your AI assistant can use to navigate websites and retrieve content.
 
-### Basic Usage
+### Natural Language Triggers
+
+The AI assistant will automatically use the browse tool when you use phrases like:
+
+**Basic Browsing:**
+- "**Search** for information about..."
+- "**Visit** this website: ..."
+- "**Check** what's on ..."
+- "**Navigate** to ..."
+- "**Fetch** content from ..."
+- "**Browse** to ..."
+- "**Go to** the website ..."
+- "**Open** this page: ..."
+- "**Look at** this URL: ..."
+- "**Scrape** data from ..."
+
+**Privacy & Stealth:**
+- "Browse **anonymously**..."
+- "Visit **privately**..."
+- "Browse in **stealth mode**..."
+- "**Hide my IP** while browsing..."
+- "Browse **through a proxy**..."
+- "**Block tracking** while visiting..."
+
+**Screenshots:**
+- "**Take a screenshot** of..."
+- "**Capture an image** of..."
+- "**Show me visually** what ... looks like"
+- "I want to **see how** ... appears"
+
+**Performance:**
+- "**Quick browse** to..."
+- "**Fast loading** of..."
+- "Browse **without images**..."
+- "**Lightweight browsing** to..."
+- "**Text-only** content from..."
+
+### Basic Usage Examples
 
 ```
 Can you check what's on example.com?
 ```
 
-The AI will use the browse tool to navigate to the website and retrieve its HTML content.
+```
+Search for information on the latest tech news from techcrunch.com
+```
+
+```
+Visit github.com and tell me what's trending
+```
+
+The AI will automatically use the browse tool to navigate to websites and retrieve their HTML content.
 
 ### Advanced Usage
 
 ```
 Please visit example.com using a Windows browser with a 1920x1080 viewport and wait for all resources to load. Take a screenshot too.
+```
+
+### More Conversational Examples
+
+```
+I need to research the current stock price of Apple. Can you go to finance.yahoo.com and search for AAPL?
+```
+
+```
+Check if the restaurant's website has their menu online. Visit bistro-example.com and look for their menu section.
+```
+
+```
+I'm looking for job postings in tech. Can you browse to linkedin.com/jobs and see what's available?
+```
+
+```
+Navigate to the documentation site for React and find information about hooks.
 ```
 
 The AI can use advanced parameters like:
@@ -224,16 +287,70 @@ Visit example.com with a fixed 1280x720 window size and custom Firefox preferenc
 Browse news.example.com with images blocked for faster loading and a 10 second timeout
 ```
 
-### Example with Maximum Privacy
+### Privacy & Stealth Examples
+
+```
+Browse example.com anonymously with maximum privacy and stealth mode
+```
+
+```
+Visit sensitive-site.com through a proxy to hide my IP address
+```
+
+```
+Browse privately to banking-site.com with WebRTC blocked and fingerprint protection
+```
+
+```
+Access geo-blocked content via proxy server proxy.example.com:8080
+```
+
+### Screenshot Examples
+
+```
+Take a screenshot of the homepage at example.com
+```
+
+```
+Capture an image of how the login page looks on mobile-site.com
+```
+
+```
+Show me visually what the product page looks like on store.example.com
+```
+
+### Performance & Speed Examples
+
+```
+Quick browse to news-site.com without loading images for faster access
+```
+
+```
+Lightweight browsing to documentation-site.com, text content only
+```
+
+```
+Fast loading of search results from search-engine.com, no images needed
+```
+
+### Advanced Privacy Combinations
 
 ```
 Visit example.com with WebRTC blocked, WebGL blocked, images blocked, and geoip detection disabled
 ```
 
-### Example for Cross-Origin Iframe Interaction
+```
+Browse anonymously through proxy 192.168.1.100:8080 with username 'user' and password 'pass' to access restricted content
+```
+
+### Cross-Origin & Iframe Interaction
 
 ```
 Browse iframe-test.example.com with Cross-Origin-Opener-Policy disabled to allow clicking elements in iframes
+```
+
+```
+Access embedded content on complex-site.com and interact with all iframe elements
 ```
 
 ## Tool Parameters
@@ -249,17 +366,17 @@ The `browse` tool accepts the following parameters:
 | `humanize` | boolean | true | Enable realistic cursor movements |
 | `locale` | string | system default | Browser locale (e.g., 'en-US') |
 | `viewport` | object | {width: 1920, height: 1080} | Browser viewport dimensions |
-| `screenshot` | boolean | false | Capture a screenshot of the page |
-| `block_webrtc` | boolean | false | Block WebRTC entirely for enhanced privacy |
-| `proxy` | string/object | none | Proxy configuration (URL string or object with server/username/password) |
+| `screenshot` | boolean | false | Capture a screenshot of the page (triggers: "screenshot", "image", "capture", "show visually") |
+| `block_webrtc` | boolean | true | Block WebRTC entirely for enhanced privacy (triggers: "private", "stealth", "hide IP") |
+| `proxy` | string/object | none | Proxy configuration (triggers: "through proxy", "anonymously", "hide IP", "via proxy") |
 | `enable_cache` | boolean | false | Cache pages and requests (uses more memory) |
 | `firefox_user_prefs` | object | none | Custom Firefox user preferences |
 | `exclude_addons` | array | none | List of default addons to exclude |
 | `window` | array | random | Fixed window size [width, height] instead of random |
 | `args` | array | none | Additional browser command-line arguments |
-| `block_images` | boolean | false | Block all images for faster loading |
-| `block_webgl` | boolean | false | Block WebGL to prevent fingerprinting |
-| `disable_coop` | boolean | false | Disable Cross-Origin-Opener-Policy for iframe interaction |
+| `block_images` | boolean | false | Block all images for faster loading (triggers: "fast", "quick", "no images", "text only") |
+| `block_webgl` | boolean | false | Block WebGL to prevent fingerprinting (triggers: "maximum privacy", "block tracking") |
+| `disable_coop` | boolean | false | Disable Cross-Origin-Opener-Policy for iframe interaction (triggers: "iframe", "embedded content") |
 | `geoip` | boolean | true | Auto-detect geolocation based on IP address |
 | `headless` | boolean | auto | Run in headless mode (auto-detects best mode if not set) |
 
@@ -295,8 +412,8 @@ python3 tests/test_client.py --mode local
 ### Docker Build
 
 ```bash
-# Build multi-architecture image
-./build_docker.sh
+# Build and publish multi-architecture image
+./publish_docker.sh
 
 # Build for specific architecture
 docker build -t camoufox-mcp .
