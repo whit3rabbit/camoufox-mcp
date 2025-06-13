@@ -86,10 +86,18 @@ server.tool(
     enable_cache: z.boolean().optional().default(false).describe("Cache pages, requests, etc. Uses more memory but improves performance when revisiting pages."),
     firefox_user_prefs: z.record(z.any()).optional().describe("Custom Firefox user preferences to set."),
     exclude_addons: z.array(z.string()).optional().describe("List of default addons to exclude (e.g., ['ublock_origin'])."),
-    window: z.tuple([
+    window: z.preprocess(
+      (arg) => {
+        if (Array.isArray(arg) && arg.length === 0) {
+          return undefined;
+        }
+        return arg;
+      },
+      z.tuple([
       z.number().min(320).max(3840),
       z.number().min(240).max(2160)
-    ]).optional().describe("Set fixed window size [width, height] instead of random generation."),
+    ]).optional()
+    ).describe("Set fixed window size [width, height] instead of random generation. An empty array [] is accepted and treated as if the window parameter was not specified."),
     args: z.array(z.string()).optional().describe("Additional command-line arguments to pass to the browser."),
     block_images: z.boolean().optional().default(false).describe("Block all images for faster loading, reduced bandwidth, and lightweight browsing. Use when users want quick/fast browsing, text-only content, or to save bandwidth."),
     block_webgl: z.boolean().optional().default(false).describe("Block WebGL to prevent fingerprinting and tracking. Use for maximum privacy/stealth mode, but note it may cause detection on some sites that rely heavily on WebGL."),

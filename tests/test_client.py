@@ -123,6 +123,87 @@ class MCPTestClient:
         print("ListTools test passed.")
 
     def test_call_tool_browse_success(self):
+        print("--- Running Test: Call Tool - Browse Success (No Window Param) ---")
+        params = {
+            "name": "browse",
+            "arguments": {"url": "https://www.example.com"}
+        }
+        request_id = self.send_request("tools/call", params)
+        response = self.get_response(request_id, timeout=60)
+        assert response and not response.get("result", {}).get("isError"), f"Browse (no window) failed: {response.get('error')}"
+        content = response.get("result", {}).get("content", [])
+        assert content and "example" in content[0]["text"].lower()
+        print("CallTool browse success (no window) test passed.")
+
+    def test_call_tool_browse_empty_window(self):
+        print("--- Running Test: Call Tool - Browse Empty Window [] ---")
+        params = {
+            "name": "browse",
+            "arguments": {
+                "url": "https://www.example.com",
+                "window": []
+            }
+        }
+        request_id = self.send_request("tools/call", params)
+        response = self.get_response(request_id, timeout=60)
+        assert response and not response.get("result", {}).get("isError"), f"Browse with empty window failed: {response.get('error')}"
+        content = response.get("result", {}).get("content", [])
+        assert content and "example" in content[0]["text"].lower()
+        print("CallTool browse with empty window test passed.")
+
+    def test_call_tool_browse_valid_window(self):
+        print("--- Running Test: Call Tool - Browse Valid Window [800, 600] ---")
+        params = {
+            "name": "browse",
+            "arguments": {
+                "url": "https://www.example.com",
+                "window": [800, 600]
+            }
+        }
+        request_id = self.send_request("tools/call", params)
+        response = self.get_response(request_id, timeout=60)
+        assert response and not response.get("result", {}).get("isError"), f"Browse with valid window failed: {response.get('error')}"
+        content = response.get("result", {}).get("content", [])
+        assert content and "example" in content[0]["text"].lower()
+        print("CallTool browse with valid window test passed.")
+
+    def test_call_tool_browse_comprehensive_empty_args(self):
+        print("--- Running Test: Call Tool - Browse Comprehensive Empty/Default Args ---")
+        params = {
+            "name": "browse",
+            "arguments": {
+                "url": "https://www.example.com",
+                "viewport": {},
+                "firefox_user_prefs": {},
+                "exclude_addons": [],
+                "window": [],
+                "args": []
+            }
+        }
+        request_id = self.send_request("tools/call", params)
+        response = self.get_response(request_id, timeout=60)
+        assert response and not response.get("result", {}).get("isError"), f"Browse with comprehensive empty args failed: {response.get('error')}"
+        content = response.get("result", {}).get("content", [])
+        assert content and "example" in content[0]["text"].lower()
+        print("CallTool browse with comprehensive empty args test passed.")
+
+    def test_call_tool_browse_valid_window(self): # This is the original test, renamed for clarity in my thought process, but will be replaced by the new one above.
+        print("--- Running Test: Call Tool - Browse Valid Window [800, 600] ---")
+        params = {
+            "name": "browse",
+            "arguments": {
+                "url": "https://www.example.com",
+                "window": [800, 600]
+            }
+        }
+        request_id = self.send_request("tools/call", params)
+        response = self.get_response(request_id, timeout=60)
+        assert response and not response.get("result", {}).get("isError"), f"Browse with valid window failed: {response.get('error')}"
+        content = response.get("result", {}).get("content", [])
+        assert content and "example" in content[0]["text"].lower()
+        print("CallTool browse with valid window test passed.")
+
+    def test_call_tool_browse_success(self): # This is the original test, renamed for clarity in my thought process, but will be replaced by the new one above.
         print("--- Running Test: Call Tool - Browse Success ---")
         params = {
             "name": "browse",
@@ -140,7 +221,10 @@ class MCPTestClient:
             self.start_server()
             self.test_handshake()
             self.test_list_tools()
-            self.test_call_tool_browse_success()
+            self.test_call_tool_browse_success() # Original success test (no window param)
+            self.test_call_tool_browse_empty_window()
+            self.test_call_tool_browse_valid_window()
+            self.test_call_tool_browse_comprehensive_empty_args()
             print("\nAll tests passed!")
         except Exception as e:
             print(f"\nAn error occurred: {e}")
