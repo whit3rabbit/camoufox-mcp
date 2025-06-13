@@ -218,6 +218,24 @@ Browse example.com with WebRTC blocked and through a proxy server proxy.example.
 Visit example.com with a fixed 1280x720 window size and custom Firefox preferences to disable JavaScript
 ```
 
+### Example with Performance Optimization
+
+```
+Browse news.example.com with images blocked for faster loading and a 10 second timeout
+```
+
+### Example with Maximum Privacy
+
+```
+Visit example.com with WebRTC blocked, WebGL blocked, images blocked, and geoip detection disabled
+```
+
+### Example for Cross-Origin Iframe Interaction
+
+```
+Browse iframe-test.example.com with Cross-Origin-Opener-Policy disabled to allow clicking elements in iframes
+```
+
 ## Tool Parameters
 
 The `browse` tool accepts the following parameters:
@@ -239,6 +257,11 @@ The `browse` tool accepts the following parameters:
 | `exclude_addons` | array | none | List of default addons to exclude |
 | `window` | array | random | Fixed window size [width, height] instead of random |
 | `args` | array | none | Additional browser command-line arguments |
+| `block_images` | boolean | false | Block all images for faster loading |
+| `block_webgl` | boolean | false | Block WebGL to prevent fingerprinting |
+| `disable_coop` | boolean | false | Disable Cross-Origin-Opener-Policy for iframe interaction |
+| `geoip` | boolean | true | Auto-detect geolocation based on IP address |
+| `headless` | boolean | auto | Run in headless mode (auto-detects best mode if not set) |
 
 ## Development
 

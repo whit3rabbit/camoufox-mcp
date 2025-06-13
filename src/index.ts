@@ -14,6 +14,7 @@ interface CamoufoxOptions {
   block_webgl?: boolean;
   block_images?: boolean;
   block_webrtc?: boolean;
+  disable_coop?: boolean;
   locale?: string;
   viewport?: { width: number; height: number };
   proxy?: string | { server: string; username?: string; password?: string };
@@ -27,7 +28,7 @@ interface CamoufoxOptions {
 // Initialize the MCP server
 const server = new McpServer({
   name: "camoufox-mcp-server",
-  version: "1.2.0",
+  version: "1.3.0",
 });
 
 // Define the browse tool with enhanced parameters
@@ -62,8 +63,13 @@ server.tool(
       z.number().min(240).max(2160)
     ]).optional().describe("Set fixed window size [width, height] instead of random generation."),
     args: z.array(z.string()).optional().describe("Additional command-line arguments to pass to the browser."),
+    block_images: z.boolean().optional().default(false).describe("Block all images for faster loading and reduced bandwidth usage."),
+    block_webgl: z.boolean().optional().default(false).describe("Block WebGL to prevent fingerprinting. Only use for special cases as it may cause detection."),
+    disable_coop: z.boolean().optional().default(false).describe("Disable Cross-Origin-Opener-Policy, allowing clicks on elements in cross-origin iframes."),
+    geoip: z.boolean().optional().default(true).describe("Automatically detect geolocation based on IP address."),
+    headless: z.boolean().optional().describe("Run browser in headless mode. Auto-detects best mode for environment if not specified."),
   },
-  async ({ url, os, waitStrategy, timeout, humanize, locale, viewport, screenshot, block_webrtc, proxy, enable_cache, firefox_user_prefs, exclude_addons, window, args }) => {
+  async ({ url, os, waitStrategy, timeout, humanize, locale, viewport, screenshot, block_webrtc, proxy, enable_cache, firefox_user_prefs, exclude_addons, window, args, block_images, block_webgl, disable_coop, geoip, headless }) => {
     let browser;
 
     try {
@@ -71,7 +77,7 @@ server.tool(
       
       // Detect if we're running in Docker/Linux or locally
       const isLinux = process.platform === 'linux';
-      const headlessMode = isLinux ? 'virtual' : true; // Use virtual display on Linux, regular headless otherwise
+      const headlessMode = headless !== undefined ? headless : (isLinux ? 'virtual' : true); // Use specified mode or auto-detect
       
       // Auto-rotate OS if not specified for better anti-detection
       const osOptions = ["windows", "macos", "linux"];
@@ -82,11 +88,12 @@ server.tool(
         os: [selectedOS], // Pass as array for BrowserForge rotation
         headless: headlessMode,
         humanize: humanize, // Enable realistic cursor movements
-        geoip: true, // Auto-detect location based on IP
+        geoip: geoip, // Auto-detect location based on IP
         ublock: true, // Keep uBlock Origin for better stealth
-        block_webgl: false, // Don't block WebGL to avoid detection
-        block_images: false, // Don't block images to avoid detection
+        block_webgl: block_webgl, // Block WebGL if requested
+        block_images: block_images, // Block images if requested
         block_webrtc: block_webrtc,
+        disable_coop: disable_coop,
         locale: locale,
         viewport: viewport ? {
           width: viewport.width,
@@ -116,7 +123,18 @@ server.tool(
         }
       }
 
-      console.error(chalk.green(`[Camoufox] Successfully retrieved content from ${url} using OS: ${selectedOS}, wait strategy: ${waitStrategy}${proxy ? ', proxy: enabled' : ''}${block_webrtc ? ', WebRTC: blocked' : ''}.`));
+      const features = [
+        `OS: ${selectedOS}`,
+        `wait: ${waitStrategy}`,
+        proxy ? 'proxy: enabled' : null,
+        block_webrtc ? 'WebRTC: blocked' : null,
+        block_images ? 'images: blocked' : null,
+        block_webgl ? 'WebGL: blocked' : null,
+        disable_coop ? 'COOP: disabled' : null,
+        !geoip ? 'geoip: disabled' : null,
+      ].filter(Boolean).join(', ');
+      
+      console.error(chalk.green(`[Camoufox] Successfully retrieved content from ${url} (${features}).`));
 
       const content: any[] = [{
         type: "text" as const,
