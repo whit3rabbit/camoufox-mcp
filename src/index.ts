@@ -1690,7 +1690,26 @@ async function captureScreenshot(page: Page, safeUrl: string, options?: Screensh
       }
 
       screenshotMetadata.selectorFound = true;
-      buffer = await locator.screenshot(baseOptions);
+      const clip = await locator.evaluate((element) => {
+        element.scrollIntoView({ block: "center", inline: "center" });
+        const rect = element.getBoundingClientRect();
+        return {
+          x: Math.max(0, rect.x),
+          y: Math.max(0, rect.y),
+          width: rect.width,
+          height: rect.height,
+        };
+      });
+
+      if (clip.width <= 0 || clip.height <= 0) {
+        screenshotMetadata.error = "Screenshot selector has no visible area.";
+        return { screenshotMetadata, mimeType };
+      }
+
+      buffer = await page.screenshot({
+        ...baseOptions,
+        clip,
+      });
     } else {
       buffer = await page.screenshot({
         ...baseOptions,

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Preserved blocked private-navigation errors when a page starts navigating during final content extraction.
+- Avoided flaky selector screenshot stability waits under Node 24 CI.
 
 ## [2.0.4] - 2026-05-13
 
