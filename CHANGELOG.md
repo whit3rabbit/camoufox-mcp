@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-05-12
+
+### Fixed
+- Removed Playwright's low-level click path from `browse_sequence` click actions to avoid CI virtual display timeouts.
+
 ## [2.0.2] - 2026-05-12
 
 ### Fixed

@@ -218,7 +218,7 @@ interface DiagnosticsCollector {
   payload(): DiagnosticsPayload | undefined;
 }
 
-const SERVER_VERSION = "2.0.2";
+const SERVER_VERSION = "2.0.3";
 const DEFAULT_MAX_CHARS = 30000;
 const MAX_MAX_CHARS = 200000;
 const DEFAULT_MAX_ELEMENTS = 100;
@@ -1821,10 +1821,14 @@ function actionTimeout(action: { timeout?: number }): number {
 
 async function activateElement(page: Page, selector: string, timeout: number): Promise<void> {
   const locator = page.locator(selector).first();
-  await locator.click({ timeout, trial: true });
+  await locator.waitFor({ state: "visible", timeout });
+  if (!await locator.isEnabled({ timeout })) {
+    throw new Error(`Click selector is disabled: ${selector}`);
+  }
+  await locator.scrollIntoViewIfNeeded({ timeout });
 
   // Camoufox's virtual display can hang during low-level mouse clicks in CI.
-  // Keep Playwright actionability checks, then trigger the element activation in-page.
+  // Keep bounded readiness checks, then trigger the element activation in-page.
   await withTimeout(
     locator.evaluate((element) => {
       const clickable = element as HTMLElement & { click?: () => void };
