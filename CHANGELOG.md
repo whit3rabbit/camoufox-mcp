@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-05-13
+
+### Changed
+- Switched the NPM release job to npm Trusted Publishing with GitHub Actions OIDC.
+- Normalized the package binary path for NPM publish metadata.
+- Removed and ignored the generated `repomix-output.xml` artifact.
+
 ## [2.0.3] - 2026-05-12
 
 ### Fixed

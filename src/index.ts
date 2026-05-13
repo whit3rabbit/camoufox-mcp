@@ -218,7 +218,7 @@ interface DiagnosticsCollector {
   payload(): DiagnosticsPayload | undefined;
 }
 
-const SERVER_VERSION = "2.0.3";
+const SERVER_VERSION = "2.0.4";
 const DEFAULT_MAX_CHARS = 30000;
 const MAX_MAX_CHARS = 200000;
 const DEFAULT_MAX_ELEMENTS = 100;
