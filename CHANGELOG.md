@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-12
+
 ### Changed
+- Raised the minimum supported Node.js version to 22.
 - The default `browse` wait strategy is now `load` so JavaScript verification pages have time to complete before content extraction.
+- Updated the README install quick start.
+- Updated runtime and test dependencies.
+
+### Security
+- Bumped transitive `form-data` dependency to 4.0.4.
+- Bumped transitive `tar-fs` dependency to 2.1.4.
 
 ## [1.5.0] - 2026-05-11
 
