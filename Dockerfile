@@ -1,5 +1,4 @@
-# Force AMD64 platform even on ARM64 hosts
-FROM --platform=linux/amd64 node:20-bullseye AS builder
+FROM node:22-bookworm AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,7 +12,7 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* ./
 
-# Install dependencies (will use AMD64 binaries)
+# Install dependencies
 RUN npm ci
 
 # Copy source code
@@ -22,14 +21,10 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
-# Install camoufox globally (AMD64 version)
-RUN npm install -g camoufox@0.1.2
+# Fetch the browser
+RUN npx camoufox-js fetch
 
-# Fetch the browser (AMD64 version)
-RUN camoufox fetch
-
-# Runtime stage - also forced to AMD64
-FROM --platform=linux/amd64 node:20-bullseye-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb xauth \

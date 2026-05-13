@@ -143,5 +143,4 @@ CLAUDE.md
 data-files/
 .DS_Store
 TODO.md
-CHANGELOG.md
 publish_docker.sh

@@ -19,13 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [22.x, 24.x]
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
@@ -33,22 +33,14 @@ jobs:
     - name: Install dependencies
       run: npm ci
     
-    - name: Build
-      run: npm run build
-    
-    
     - name: Setup Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.x'
     
-    - name: Fetch Camoufox browser
-      run: npx camoufox@latest fetch
-    
-    - name: Run tests
-      run: |
-        python3 tests/test_client.py --mode local || true
-      timeout-minutes: 5
+    - name: Run all local tests
+      run: npm run test:all
+      timeout-minutes: 10
 
   build-and-publish-npm:
     name: Build and Publish to NPM
@@ -57,10 +49,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: '22.x'
         registry-url: 'https://registry.npmjs.org'
@@ -86,24 +78,24 @@ jobs:
       packages: write
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@v4
     
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
     
     - name: Log in to Docker Hub
       if: github.event_name != 'pull_request'
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
     
     - name: Log in to GitHub Container Registry
       if: github.event_name != 'pull_request'
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -111,7 +103,7 @@ jobs:
     
     - name: Extract metadata
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: |
           ${{ env.DOCKER_REPO }}
@@ -125,10 +117,10 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
     
     - name: Build and push Docker images
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v7
       with:
         context: .
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
@@ -142,39 +134,40 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
+    - uses: actions/checkout@v6
+
+    - name: Resolve release version
+      id: version
+      run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
     - name: Create Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v3
       with:
-        tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
         body: |
-          ## 🚀 Release ${{ github.ref_name }}
+          ## Release ${{ github.ref_name }}
           
-          ### 📦 Installation
+          ### Installation
           
           **NPM:**
           ```bash
-          npm install -g camoufox-mcp-server@${{ github.ref_name }}
+          npm install -g camoufox-mcp-server@${{ steps.version.outputs.version }}
           ```
           
           **Docker:**
           ```bash
-          docker pull ${{ env.DOCKER_REPO }}:${{ github.ref_name }}
-          docker pull ${{ env.GHCR_REPO }}:${{ github.ref_name }}
+          docker pull ${{ env.DOCKER_REPO }}:${{ steps.version.outputs.version }}
+          docker pull ${{ env.GHCR_REPO }}:${{ steps.version.outputs.version }}
           ```
           
           **NPX (no installation):**
           ```bash
-          npx camoufox-mcp-server@${{ github.ref_name }}
+          npx camoufox-mcp-server@${{ steps.version.outputs.version }}
           ```
           
-          ### 📋 Changelog
+          ### Changelog
           See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
         draft: false
         prerelease: false
