@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-05-13
+
+### Fixed
+- Preserved blocked private-navigation errors when a page starts navigating during final content extraction.
+
 ## [2.0.4] - 2026-05-13
 
 ### Changed

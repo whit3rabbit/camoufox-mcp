@@ -219,7 +219,7 @@ interface DiagnosticsCollector {
   payload(): DiagnosticsPayload | undefined;
 }
 
-const SERVER_VERSION = "2.0.4";
+const SERVER_VERSION = "2.0.5";
 const DEFAULT_MAX_CHARS = 30000;
 const MAX_MAX_CHARS = 200000;
 const DEFAULT_MAX_ELEMENTS = 100;
@@ -1829,6 +1829,23 @@ async function settleAndAssertSafe(page: Page, requestGuard: RequestGuard): Prom
   requestGuard.assertAllowed();
 }
 
+async function runGuardedPageRead<T>(page: Page, requestGuard: RequestGuard, read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (readError) {
+    try {
+      await page.waitForTimeout(GUARD_SETTLE_MS).catch(() => undefined);
+      requestGuard.assertAllowed();
+      await validateTargetUrl(page.url());
+      requestGuard.assertAllowed();
+    } catch (safetyError) {
+      throw safetyError;
+    }
+
+    throw readError;
+  }
+}
+
 function actionTimeout(action: { timeout?: number }): number {
   return action.timeout ?? DEFAULT_ACTION_TIMEOUT_MS;
 }
@@ -2013,7 +2030,11 @@ async function handleBrowse(input: BrowseToolInput) {
     }) => {
       const mode = input.outputMode ?? "text";
       const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
-      const payload = await buildBrowsePayload(page, response, mode, charLimit, input.selector);
+      const payload = await runGuardedPageRead(
+        page,
+        requestGuard,
+        () => buildBrowsePayload(page, response, mode, charLimit, input.selector),
+      );
       requestGuard.assertAllowed();
       if (isBlockedNavigationResponse(payload)) {
         return buildToolError(`Blocked unsafe browser request to ${safeUrl}.`);
@@ -2060,12 +2081,16 @@ async function handleSnapshot(input: SnapshotToolInput) {
       requestGuard,
       diagnostics,
     }) => {
-      const payload = await buildSnapshotPayload(
+      const payload = await runGuardedPageRead(
         page,
-        response,
-        input.maxChars ?? DEFAULT_MAX_CHARS,
-        input.maxElements ?? DEFAULT_MAX_ELEMENTS,
-        input.selector,
+        requestGuard,
+        () => buildSnapshotPayload(
+          page,
+          response,
+          input.maxChars ?? DEFAULT_MAX_CHARS,
+          input.maxElements ?? DEFAULT_MAX_ELEMENTS,
+          input.selector,
+        ),
       );
       requestGuard.assertAllowed();
       appendDiagnostics(payload, diagnostics.payload());
@@ -2105,18 +2130,26 @@ async function handleSequence(input: SequenceToolInput) {
       const mode = input.outputMode ?? "text";
       const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
       const finalResponse = getLastNavigationResponse() ?? response;
-      const contentPayload = await buildBrowsePayload(page, finalResponse, mode, charLimit, input.selector);
+      const contentPayload = await runGuardedPageRead(
+        page,
+        requestGuard,
+        () => buildBrowsePayload(page, finalResponse, mode, charLimit, input.selector),
+      );
       requestGuard.assertAllowed();
       if (isBlockedNavigationResponse(contentPayload)) {
         return buildToolError(`Blocked unsafe browser request to ${safeUrl}.`);
       }
 
-      const snapshot = await buildSnapshotPayload(
+      const snapshot = await runGuardedPageRead(
         page,
-        finalResponse,
-        charLimit,
-        input.maxElements ?? DEFAULT_MAX_ELEMENTS,
-        input.selector,
+        requestGuard,
+        () => buildSnapshotPayload(
+          page,
+          finalResponse,
+          charLimit,
+          input.maxElements ?? DEFAULT_MAX_ELEMENTS,
+          input.selector,
+        ),
       );
       requestGuard.assertAllowed();
 
