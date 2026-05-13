@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-05-12
+
+### Fixed
+- Updated the MCP server-reported version to match the package version.
+- Made `browse_sequence` click actions avoid waiting for anchor-triggered navigations before the post-action safety guard runs.
+
 ## [2.0.0] - 2026-05-12
 
 ### Changed

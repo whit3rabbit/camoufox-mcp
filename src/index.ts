@@ -218,7 +218,7 @@ interface DiagnosticsCollector {
   payload(): DiagnosticsPayload | undefined;
 }
 
-const SERVER_VERSION = "1.5.0";
+const SERVER_VERSION = "2.0.1";
 const DEFAULT_MAX_CHARS = 30000;
 const MAX_MAX_CHARS = 200000;
 const DEFAULT_MAX_ELEMENTS = 100;
@@ -1831,7 +1831,7 @@ async function runSequenceAction(
 
   switch (action.type) {
     case "click":
-      await page.locator(action.selector).first().click({ timeout });
+      await page.locator(action.selector).first().click({ timeout, noWaitAfter: true });
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "hover":
