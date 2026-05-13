@@ -1833,15 +1833,10 @@ async function runGuardedPageRead<T>(page: Page, requestGuard: RequestGuard, rea
   try {
     return await read();
   } catch (readError) {
-    try {
-      await page.waitForTimeout(GUARD_SETTLE_MS).catch(() => undefined);
-      requestGuard.assertAllowed();
-      await validateTargetUrl(page.url());
-      requestGuard.assertAllowed();
-    } catch (safetyError) {
-      throw safetyError;
-    }
-
+    await page.waitForTimeout(GUARD_SETTLE_MS).catch(() => undefined);
+    requestGuard.assertAllowed();
+    await validateTargetUrl(page.url());
+    requestGuard.assertAllowed();
     throw readError;
   }
 }
