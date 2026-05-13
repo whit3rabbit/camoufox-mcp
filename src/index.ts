@@ -218,7 +218,7 @@ interface DiagnosticsCollector {
   payload(): DiagnosticsPayload | undefined;
 }
 
-const SERVER_VERSION = "2.0.1";
+const SERVER_VERSION = "2.0.2";
 const DEFAULT_MAX_CHARS = 30000;
 const MAX_MAX_CHARS = 200000;
 const DEFAULT_MAX_ELEMENTS = 100;
@@ -1819,6 +1819,31 @@ function actionTimeout(action: { timeout?: number }): number {
   return action.timeout ?? DEFAULT_ACTION_TIMEOUT_MS;
 }
 
+async function activateElement(page: Page, selector: string, timeout: number): Promise<void> {
+  const locator = page.locator(selector).first();
+  await locator.click({ timeout, trial: true });
+
+  // Camoufox's virtual display can hang during low-level mouse clicks in CI.
+  // Keep Playwright actionability checks, then trigger the element activation in-page.
+  await withTimeout(
+    locator.evaluate((element) => {
+      const clickable = element as HTMLElement & { click?: () => void };
+      if (typeof clickable.click === "function") {
+        clickable.click();
+        return;
+      }
+
+      element.dispatchEvent(new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }));
+    }),
+    timeout,
+    "Click action",
+  );
+}
+
 async function runSequenceAction(
   page: Page,
   action: SequenceAction,
@@ -1831,7 +1856,7 @@ async function runSequenceAction(
 
   switch (action.type) {
     case "click":
-      await page.locator(action.selector).first().click({ timeout, noWaitAfter: true });
+      await activateElement(page, action.selector, timeout);
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "hover":
