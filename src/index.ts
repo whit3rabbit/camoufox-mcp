@@ -14,6 +14,7 @@ type SupportedOs = "windows" | "macos" | "linux";
 type HeadlessMode = boolean | "virtual";
 type WaitStrategy = "domcontentloaded" | "load" | "networkidle";
 type ScreenshotImageType = "png" | "jpeg";
+type WindowSize = [number, number];
 type SlotRelease = () => void;
 type ProxyConfig = string | { server: string; username?: string; password?: string };
 type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
@@ -164,7 +165,7 @@ interface CamoufoxOptions {
   enable_cache?: boolean;
   firefox_user_prefs?: Record<string, unknown>;
   exclude_addons?: string[];
-  window?: [number, number];
+  window?: WindowSize;
   args?: string[];
 }
 
@@ -193,7 +194,7 @@ interface CommonBrowserInput {
   enable_cache?: boolean;
   firefox_user_prefs?: Record<string, unknown>;
   exclude_addons?: string[];
-  window?: [number, number];
+  window?: WindowSize;
   args?: string[];
   block_images?: boolean;
   block_webgl?: boolean;
@@ -321,10 +322,22 @@ const windowSchema = z.preprocess(
     }
     return arg;
   },
-  z.tuple([
-    z.number().min(320).max(3840),
-    z.number().min(240).max(2160),
-  ]).optional(),
+  z.array(z.number()).length(2).superRefine(([width, height], ctx) => {
+    if (width < 320 || width > 3840) {
+      ctx.addIssue({
+        code: "custom",
+        path: [0],
+        message: "Window width must be between 320 and 3840.",
+      });
+    }
+    if (height < 240 || height > 2160) {
+      ctx.addIssue({
+        code: "custom",
+        path: [1],
+        message: "Window height must be between 240 and 2160.",
+      });
+    }
+  }).optional(),
 ).describe("Set fixed window size [width, height] instead of random generation. An empty array [] is accepted and treated as if the window parameter was not specified.");
 
 const screenshotOptionsSchema = z.object({
@@ -445,9 +458,10 @@ const sequenceToolShape = {
   screenshotOptions: screenshotOptionsSchema,
 };
 
-type BrowseToolInput = z.infer<z.ZodObject<typeof browseToolShape>>;
-type SnapshotToolInput = z.infer<z.ZodObject<typeof snapshotToolShape>>;
-type SequenceToolInput = z.infer<z.ZodObject<typeof sequenceToolShape>>;
+type WithWindowSize<T> = Omit<T, "window"> & { window?: WindowSize };
+type BrowseToolInput = WithWindowSize<z.infer<z.ZodObject<typeof browseToolShape>>>;
+type SnapshotToolInput = WithWindowSize<z.infer<z.ZodObject<typeof snapshotToolShape>>>;
+type SequenceToolInput = WithWindowSize<z.infer<z.ZodObject<typeof sequenceToolShape>>>;
 type SequenceAction = z.infer<typeof sequenceActionSchema>;
 
 function describeError(error: unknown): string {
@@ -1026,7 +1040,7 @@ function findDeniedUnsafeBrowserOption(
   return undefined;
 }
 
-function isScreenshotDimensionAllowed(viewport?: { width: number; height: number }, window?: [number, number]): boolean {
+function isScreenshotDimensionAllowed(viewport?: { width: number; height: number }, window?: WindowSize): boolean {
   const width = viewport?.width ?? window?.[0] ?? MAX_SCREENSHOT_WIDTH;
   const height = viewport?.height ?? window?.[1] ?? MAX_SCREENSHOT_HEIGHT;
   return width <= MAX_SCREENSHOT_WIDTH && height <= MAX_SCREENSHOT_HEIGHT;

@@ -164,6 +164,23 @@ class MCPTestClient:
         tools = response["result"]["tools"]
         tool_by_name = {tool["name"]: tool for tool in tools}
         assert set(tool_by_name) == {"browse", "browse_snapshot", "browse_sequence"}
+
+        def assert_no_array_form_items(schema, path="$"):
+            if isinstance(schema, dict):
+                items = schema.get("items")
+                assert not isinstance(items, list), f"Array-form JSON schema items at {path}.items"
+                for key, value in schema.items():
+                    assert_no_array_form_items(value, f"{path}.{key}")
+            elif isinstance(schema, list):
+                for index, value in enumerate(schema):
+                    assert_no_array_form_items(value, f"{path}[{index}]")
+
+        for tool in tools:
+            input_schema = tool["inputSchema"]
+            assert_no_array_form_items(input_schema, f"{tool['name']}.inputSchema")
+            window_items = input_schema["properties"]["window"]["items"]
+            assert isinstance(window_items, dict), f"{tool['name']} window.items must be an object"
+
         wait_strategy = tool_by_name["browse"]["inputSchema"]["properties"]["waitStrategy"]
         assert wait_strategy.get("default") == "load"
         print("ListTools test passed.")
