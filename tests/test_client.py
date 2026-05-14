@@ -163,7 +163,26 @@ class MCPTestClient:
         assert response and response.get("result", {}).get("tools")
         tools = response["result"]["tools"]
         tool_by_name = {tool["name"]: tool for tool in tools}
-        assert set(tool_by_name) == {"browse", "browse_snapshot", "browse_sequence"}
+        expected_tools = {
+            "camoufox_status",
+            "browse",
+            "browse_snapshot",
+            "browse_sequence",
+            "browse_links",
+            "browse_forms",
+            "browse_outline",
+            "browse_find",
+            "browse_screenshot",
+            "browse_console",
+            "browse_network_summary",
+            "browse_session_start",
+            "browse_session_navigate",
+            "browse_session_action",
+            "browse_session_snapshot",
+            "browse_session_resume",
+            "browse_session_close",
+        }
+        assert set(tool_by_name) == expected_tools
 
         def assert_no_array_form_items(schema, path="$"):
             if isinstance(schema, dict):
@@ -178,11 +197,27 @@ class MCPTestClient:
         for tool in tools:
             input_schema = tool["inputSchema"]
             assert_no_array_form_items(input_schema, f"{tool['name']}.inputSchema")
-            window_items = input_schema["properties"]["window"]["items"]
-            assert isinstance(window_items, dict), f"{tool['name']} window.items must be an object"
+            window_schema = input_schema.get("properties", {}).get("window")
+            if window_schema:
+                window_items = window_schema["items"]
+                assert isinstance(window_items, dict), f"{tool['name']} window.items must be an object"
+            assert "annotations" in tool, f"{tool['name']} should expose annotations"
+            assert "outputSchema" in tool, f"{tool['name']} should expose output schema"
 
         wait_strategy = tool_by_name["browse"]["inputSchema"]["properties"]["waitStrategy"]
         assert wait_strategy.get("default") == "load"
+        assert tool_by_name["browse"]["annotations"]["readOnlyHint"] is True
+        assert tool_by_name["browse_sequence"]["annotations"]["readOnlyHint"] is False
+
+        expected_captcha_policies = {"detect", "pause", "fail", "attempt"}
+        for tool_name, tool in tool_by_name.items():
+            captcha_schema = tool["inputSchema"].get("properties", {}).get("captchaPolicy")
+            if captcha_schema:
+                captcha_policies = set(captcha_schema.get("enum", []))
+                assert captcha_policies == expected_captcha_policies, (
+                    f"{tool_name} captchaPolicy enum mismatch: {captcha_schema}"
+                )
+                assert "solve" not in captcha_policies, f"{tool_name} must not expose solve policy"
         print("ListTools test passed.")
 
     def _run_tool(self, name, arguments, timeout=60):
@@ -199,9 +234,48 @@ class MCPTestClient:
     def _run_sequence(self, arguments, timeout=60):
         return self._run_tool("browse_sequence", arguments, timeout=timeout)
 
+    def _run_status(self, timeout=10):
+        return self._run_tool("camoufox_status", {}, timeout=timeout)
+
+    def _run_links(self, arguments, timeout=60):
+        return self._run_tool("browse_links", arguments, timeout=timeout)
+
+    def _run_forms(self, arguments, timeout=60):
+        return self._run_tool("browse_forms", arguments, timeout=timeout)
+
+    def _run_outline(self, arguments, timeout=60):
+        return self._run_tool("browse_outline", arguments, timeout=timeout)
+
+    def _run_find(self, arguments, timeout=60):
+        return self._run_tool("browse_find", arguments, timeout=timeout)
+
+    def _run_screenshot(self, arguments, timeout=60):
+        return self._run_tool("browse_screenshot", arguments, timeout=timeout)
+
+    def _run_console(self, arguments, timeout=60):
+        return self._run_tool("browse_console", arguments, timeout=timeout)
+
+    def _run_network_summary(self, arguments, timeout=60):
+        return self._run_tool("browse_network_summary", arguments, timeout=timeout)
+
     def _fixture_url(self, html):
         encoded = base64.b64encode(html.encode("utf-8")).decode("ascii")
         return f"https://httpbin.org/base64/{urllib.parse.quote(encoded, safe='')}"
+
+    def test_call_tool_status(self):
+        print("--- Running Test: Call Tool - Status ---")
+        response = self._run_status()
+        payload = self.get_tool_payload(response)
+        assert payload["browser"] == "camoufox"
+        assert payload["version"]
+        assert isinstance(payload["browserAvailable"], bool)
+        assert payload["queuedRequests"] == 0
+        assert payload["maxConcurrency"] >= 1
+        assert payload["maxSessions"] >= 1
+        assert payload["unsafeOptionsAllowed"] is False
+        assert payload["evaluateAllowed"] is False
+        assert response.get("result", {}).get("structuredContent", {}).get("browser") == "camoufox"
+        print("CallTool status test passed.")
 
     def test_call_tool_browse_rejects_localhost(self):
         print("--- Running Test: Call Tool - Reject Localhost URL ---")
@@ -282,7 +356,12 @@ class MCPTestClient:
             "http://[::]/",
             "http://[fc00::1]/",
             "http://[fe80::1]/",
-            "http://[2001:db8::1]/"
+            "http://[64:ff9b::1]/",
+            "http://[100::1]/",
+            "http://[2001::1]/",
+            "http://[2001:2::1]/",
+            "http://[2001:db8::1]/",
+            "http://[2002::1]/"
         ]
         for url in urls:
             response = self._call_tool("browse", {"url": url}, timeout=10)
@@ -380,6 +459,135 @@ class MCPTestClient:
         assert content[1].get("mimeType") == "image/jpeg"
         print("CallTool selector JPEG screenshot test passed.")
 
+    def test_call_tool_focused_extractors(self):
+        print("--- Running Test: Call Tool - Focused Extractors ---")
+        html = """<!doctype html>
+<html>
+<head><title>Extractor Fixture</title><meta name="description" content="Focused extractor page"></head>
+<body>
+  <nav><a href="/pricing">Pricing</a><a href="https://example.org/docs">Docs</a></nav>
+  <main>
+    <h1>Docs</h1>
+    <h2>Install</h2>
+    <p>Install the package with npm before running the browser.</p>
+    <form id="login-form">
+      <label>Email <input name="email" type="email" required placeholder="you@example.com"></label>
+      <label>Role <select name="role"><option value="admin">Admin</option><option value="user">User</option></select></label>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>"""
+        url = self._fixture_url(html)
+
+        links = self.get_tool_payload(self._run_links({"url": url, "maxLinks": 10}, timeout=90))
+        assert any(link["text"] == "Pricing" for link in links["links"]), f"Expected Pricing link: {links}"
+        assert links["selectorFound"] is True
+
+        forms = self.get_tool_payload(self._run_forms({"url": url, "maxForms": 5, "maxFields": 10}, timeout=90))
+        assert forms["forms"], f"Expected forms: {forms}"
+        field_names = {field.get("name") for form in forms["forms"] for field in form["fields"]}
+        assert "email" in field_names
+        assert "role" in field_names
+        assert forms["forms"][0]["submit"]["text"] == "Sign in"
+
+        outline = self.get_tool_payload(self._run_outline({"url": url, "maxItems": 10}, timeout=90))
+        assert outline["description"] == "Focused extractor page"
+        assert any(heading["text"] == "Install" and heading["level"] == 2 for heading in outline["headings"])
+        assert "nav" in outline["landmarks"] or "navigation" in outline["landmarks"]
+
+        found = self.get_tool_payload(self._run_find({
+            "url": url,
+            "query": "npm",
+            "maxMatches": 3,
+            "contextChars": 80
+        }, timeout=90))
+        assert found["matches"], f"Expected find matches: {found}"
+        assert "npm" in found["matches"][0]["text"].lower()
+        print("CallTool focused extractors test passed.")
+
+    def test_call_tool_screenshot_tool(self):
+        print("--- Running Test: Call Tool - Screenshot Tool ---")
+        response = self._run_screenshot({
+            "url": "https://www.example.com",
+            "selector": "h1",
+            "type": "jpeg",
+            "quality": 70
+        })
+        payload = self.get_tool_payload(response)
+        assert payload["screenshot"]["included"] is True, f"Expected screenshot: {payload}"
+        assert payload["screenshot"]["selectorFound"] is True
+        content = response.get("result", {}).get("content", [])
+        assert len(content) == 2
+        assert content[1].get("mimeType") == "image/jpeg"
+        print("CallTool screenshot tool test passed.")
+
+    def test_call_tool_console_and_network_summary(self):
+        print("--- Running Test: Call Tool - Console And Network Summary ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <script>console.log('diagnostic fixture message');</script>
+  <p>diagnostics</p>
+</body>
+</html>"""
+        console_payload = self.get_tool_payload(self._run_console({"url": self._fixture_url(html)}, timeout=90))
+        assert any("diagnostic fixture message" in entry["text"] for entry in console_payload["console"]), console_payload
+
+        network_payload = self.get_tool_payload(self._run_network_summary({
+            "url": "https://www.example.com",
+            "maxFailures": 5
+        }, timeout=90))
+        assert network_payload["requests"] >= 1, f"Expected network requests: {network_payload}"
+        assert "200" in network_payload["statusCounts"], f"Expected status count: {network_payload}"
+        print("CallTool console and network summary test passed.")
+
+    def test_call_tool_browse_rejects_oversize_fullpage_screenshot(self):
+        print("--- Running Test: Call Tool - Reject Oversize Full-Page Screenshot ---")
+        html = """<!doctype html>
+<html>
+<body style="margin:0">
+  <main style="height:3000px;width:100%;background:#eee">tall page</main>
+</body>
+</html>"""
+        response = self._run_browse({
+            "url": self._fixture_url(html),
+            "screenshot": True,
+            "screenshotOptions": {
+                "fullPage": True
+            },
+            "maxChars": 1000
+        }, timeout=90)
+        payload = self.get_tool_payload(response)
+        screenshot = payload.get("screenshot", {})
+        assert screenshot.get("included") is False, f"Expected omitted screenshot: {payload}"
+        assert "dimension policy" in screenshot.get("error", ""), f"Expected dimension policy error: {payload}"
+        assert len(response.get("result", {}).get("content", [])) == 1
+        print("CallTool oversize full-page screenshot rejection test passed.")
+
+    def test_call_tool_browse_rejects_oversize_selector_screenshot(self):
+        print("--- Running Test: Call Tool - Reject Oversize Selector Screenshot ---")
+        html = """<!doctype html>
+<html>
+<body style="margin:0">
+  <div id="large" style="width:2200px;height:1200px;background:#ddd">large target</div>
+</body>
+</html>"""
+        response = self._run_browse({
+            "url": self._fixture_url(html),
+            "screenshot": True,
+            "screenshotOptions": {
+                "selector": "#large"
+            },
+            "maxChars": 1000
+        }, timeout=90)
+        payload = self.get_tool_payload(response)
+        screenshot = payload.get("screenshot", {})
+        assert screenshot.get("included") is False, f"Expected omitted screenshot: {payload}"
+        assert screenshot.get("selectorFound") is True
+        assert "dimension policy" in screenshot.get("error", ""), f"Expected dimension policy error: {payload}"
+        print("CallTool oversize selector screenshot rejection test passed.")
+
     def test_call_tool_browse_missing_selector(self):
         print("--- Running Test: Call Tool - Browse Missing Selector ---")
         response = self._run_browse({
@@ -407,6 +615,40 @@ class MCPTestClient:
         assert payload["elements"], f"Expected snapshot elements: {payload}"
         assert any(element.get("role") == "link" for element in payload["elements"])
         print("CallTool snapshot success test passed.")
+
+    def test_call_tool_snapshot_does_not_truncate_only_hidden_candidates(self):
+        print("--- Running Test: Call Tool - Snapshot Hidden Candidates Not Truncated ---")
+        hidden = "".join("<button style='display:none'>Hidden</button>" for _ in range(10))
+        html = f"""<!doctype html>
+<html>
+<body>
+  <button id="visible">Visible</button>
+  {hidden}
+</body>
+</html>"""
+        response = self._run_snapshot({
+            "url": self._fixture_url(html),
+            "maxChars": 1000,
+            "maxElements": 5
+        }, timeout=90)
+        payload = self.get_tool_payload(response)
+        assert len(payload["elements"]) == 1, f"Expected one visible element: {payload}"
+        assert payload["elementsTruncated"] is False, f"Hidden candidates should not imply truncation: {payload}"
+        print("CallTool snapshot hidden candidates truncation test passed.")
+
+    def test_call_tool_browse_separates_adjacent_inline_text(self):
+        print("--- Running Test: Call Tool - Browse Separates Adjacent Inline Text ---")
+        html = """<!doctype html>
+<html>
+<body><span>Hello</span><span>World</span></body>
+</html>"""
+        response = self._run_browse({
+            "url": self._fixture_url(html),
+            "maxChars": 1000
+        }, timeout=90)
+        payload = self.get_tool_payload(response)
+        assert payload["text"].strip() == "Hello World", f"Expected separated inline text: {payload}"
+        print("CallTool adjacent inline text spacing test passed.")
 
     def test_call_tool_sequence_click_link(self):
         print("--- Running Test: Call Tool - Browse Sequence Click Link ---")
@@ -473,6 +715,222 @@ class MCPTestClient:
         assert payload["snapshot"]["elements"], f"Expected final snapshot elements: {payload}"
         print("CallTool sequence form actions test passed.")
 
+    def test_call_tool_session_flow_and_max_sessions(self):
+        print("--- Running Test: Call Tool - Session Flow And Max Sessions ---")
+        start_response = self._run_tool("browse_session_start", {}, timeout=90)
+        session_id = self.get_tool_payload(start_response)["sessionId"]
+        try:
+            second_response = self._call_tool("browse_session_start", {}, timeout=10)
+            assert second_response and second_response.get("result", {}).get("isError"), second_response
+            assert "too many active sessions" in self.get_tool_text(second_response).lower()
+
+            html = """<!doctype html>
+<html>
+<body>
+  <button id="inc" onclick="document.getElementById('result').textContent = 'count 1';">Increment</button>
+  <p id="result">count 0</p>
+</body>
+</html>"""
+            navigate = self._run_tool("browse_session_navigate", {
+                "sessionId": session_id,
+                "url": self._fixture_url(html),
+                "maxChars": 1000
+            }, timeout=90)
+            navigate_payload = self.get_tool_payload(navigate)
+            assert navigate_payload["sessionId"] == session_id
+            assert "count 0" in navigate_payload["text"]
+
+            action = self._run_tool("browse_session_action", {
+                "sessionId": session_id,
+                "action": {"type": "click", "selector": "#inc"},
+                "maxChars": 1000,
+                "maxElements": 20
+            }, timeout=90)
+            action_payload = self.get_tool_payload(action)
+            assert action_payload["action"]["status"] == "ok"
+            assert "count 1" in action_payload["snapshot"]["text"]
+
+            snapshot = self._run_tool("browse_session_snapshot", {
+                "sessionId": session_id,
+                "maxChars": 1000,
+                "maxElements": 20
+            }, timeout=90)
+            snapshot_payload = self.get_tool_payload(snapshot)
+            assert "count 1" in snapshot_payload["text"]
+        finally:
+            close_response = self._run_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+            assert self.get_tool_payload(close_response)["closed"] is True
+        print("CallTool session flow and max sessions test passed.")
+
+    def test_call_tool_session_captcha_detection(self):
+        print("--- Running Test: Call Tool - Session CAPTCHA Detection ---")
+        start_response = self._run_tool("browse_session_start", {}, timeout=90)
+        session_id = self.get_tool_payload(start_response)["sessionId"]
+        try:
+            html = """<!doctype html>
+<html>
+<head><title>Just a moment</title></head>
+<body>
+  <h1>Verify you are human</h1>
+  <iframe title="recaptcha challenge" src="https://www.google.com/recaptcha/api2/anchor"></iframe>
+</body>
+</html>"""
+            response = self._run_tool("browse_session_navigate", {
+                "sessionId": session_id,
+                "url": self._fixture_url(html),
+                "captchaPolicy": "pause",
+                "maxChars": 1000
+            }, timeout=90)
+            payload = self.get_tool_payload(response)
+            assert payload["captchaDetected"] is True, payload
+            assert payload["requiresUserAction"] is True, payload
+            assert payload["challengeSignals"], payload
+        finally:
+            close_response = self._run_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+            assert self.get_tool_payload(close_response)["closed"] is True
+        print("CallTool session CAPTCHA detection test passed.")
+
+    def test_call_tool_session_captcha_attempt(self):
+        print("--- Running Test: Call Tool - Session CAPTCHA Attempt Metadata ---")
+        start_response = self._run_tool("browse_session_start", {}, timeout=90)
+        session_id = self.get_tool_payload(start_response)["sessionId"]
+        try:
+            html = """<!doctype html>
+<html>
+<head><title>Just a moment</title></head>
+<body>
+  <h1>Verify you are human</h1>
+  <iframe title="recaptcha challenge" src="https://www.google.com/recaptcha/api2/anchor"></iframe>
+</body>
+</html>"""
+            response = self._run_tool("browse_session_navigate", {
+                "sessionId": session_id,
+                "url": self._fixture_url(html),
+                "captchaPolicy": "attempt",
+                "maxChars": 1000
+            }, timeout=90)
+            payload = self.get_tool_payload(response)
+            assert payload["captchaDetected"] is True, payload
+            assert payload["requiresUserAction"] is True, payload
+            assert payload["challengeProvider"] == "recaptcha", payload
+            assert payload["captchaIframes"], payload
+            assert payload["suggestedStrategy"], payload
+            assert "autoSolve" not in payload, payload
+            content = response.get("result", {}).get("content", [])
+            assert len(content) == 2, response
+            assert content[1].get("type") == "image", response
+            assert content[1].get("mimeType") == "image/png", response
+        finally:
+            close_response = self._run_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+            assert self.get_tool_payload(close_response)["closed"] is True
+        print("CallTool session CAPTCHA attempt metadata test passed.")
+
+    def test_call_tool_session_start_enforces_concurrent_max_sessions(self):
+        print("--- Running Test: Call Tool - Concurrent Session Max Enforcement ---")
+        session_client = MCPTestClient(
+            mode=self.mode,
+            image_name=self.image_name,
+            docker_platform=self.docker_platform,
+            env={
+                "CAMOUFOX_MCP_MAX_CONCURRENCY": "2",
+                "CAMOUFOX_MCP_MAX_SESSIONS": "1"
+            }
+        )
+        sessions = []
+        try:
+            session_client.start_server()
+            session_client.test_handshake()
+            request_ids = [
+                session_client.send_request("tools/call", {
+                    "name": "browse_session_start",
+                    "arguments": {}
+                }),
+                session_client.send_request("tools/call", {
+                    "name": "browse_session_start",
+                    "arguments": {}
+                })
+            ]
+            responses = [session_client.get_response(request_id, timeout=90) for request_id in request_ids]
+            assert all(responses), responses
+            errors = [response for response in responses if response.get("result", {}).get("isError")]
+            successes = [response for response in responses if not response.get("result", {}).get("isError")]
+            assert len(successes) == 1, responses
+            assert len(errors) == 1, responses
+            assert "too many active sessions" in session_client.get_tool_text(errors[0]).lower(), errors[0]
+            sessions = [session_client.get_tool_payload(response)["sessionId"] for response in successes]
+        finally:
+            for session_id in sessions:
+                close_response = session_client._call_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+                assert close_response and not close_response.get("result", {}).get("isError"), close_response
+            session_client.stop_server()
+        print("CallTool concurrent session max enforcement test passed.")
+
+    def test_call_tool_session_rejects_delayed_private_request(self):
+        print("--- Running Test: Call Tool - Session Reject Delayed Private Request ---")
+        start_response = self._run_tool("browse_session_start", {}, timeout=90)
+        session_id = self.get_tool_payload(start_response)["sessionId"]
+        try:
+            html = """<!doctype html>
+<html>
+<body>
+  <p>safe first</p>
+  <script>
+    setTimeout(() => {
+      const img = new Image();
+      img.src = 'https://10.0.0.1/session-late.png';
+      document.body.appendChild(img);
+    }, 3000);
+  </script>
+</body>
+</html>"""
+            navigate = self._call_tool("browse_session_navigate", {
+                "sessionId": session_id,
+                "url": self._fixture_url(html),
+                "maxChars": 1000
+            }, timeout=90)
+            assert navigate, navigate
+            if navigate.get("result", {}).get("isError"):
+                assert "not allowed" in self.get_tool_text(navigate).lower() or "blocked unsafe" in self.get_tool_text(navigate).lower()
+            else:
+                assert "safe first" in self.get_tool_payload(navigate)["text"]
+                time.sleep(3.5)
+                snapshot = self._call_tool("browse_session_snapshot", {
+                    "sessionId": session_id,
+                    "maxChars": 1000
+                }, timeout=30)
+                assert snapshot and snapshot.get("result", {}).get("isError"), snapshot
+                snapshot_error = self.get_tool_text(snapshot).lower()
+                assert "not allowed" in snapshot_error or "blocked unsafe" in snapshot_error, snapshot
+        finally:
+            close_response = self._call_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+            assert close_response, close_response
+        print("CallTool session delayed private request rejection test passed.")
+
+    def test_call_tool_sequence_scrolls_selector_element(self):
+        print("--- Running Test: Call Tool - Browse Sequence Scroll Selector Element ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <div id="box" style="height:50px;width:200px;overflow:auto;border:1px solid black"
+       onscroll="document.getElementById('result').textContent = 'scrollTop ' + this.scrollTop;">
+    <div style="height:500px">scroll content</div>
+  </div>
+  <p id="result">scrollTop 0</p>
+</body>
+</html>"""
+        response = self._run_sequence({
+            "url": self._fixture_url(html),
+            "actions": [
+                {"type": "scroll", "selector": "#box", "deltaY": 180}
+            ],
+            "maxChars": 2000
+        }, timeout=90)
+        payload = self.get_tool_payload(response)
+        assert payload["actions"][0]["status"] == "ok"
+        assert "scrollTop 0" not in payload["text"], f"Expected selected element to scroll: {payload}"
+        assert "scrollTop " in payload["text"], f"Expected scroll result text: {payload}"
+        print("CallTool sequence selector scroll test passed.")
+
     def test_call_tool_sequence_rejects_private_redirect(self):
         print("--- Running Test: Call Tool - Browse Sequence Reject Private Redirect ---")
         response = self._call_tool("browse_sequence", {
@@ -505,6 +963,29 @@ class MCPTestClient:
         assert payload["truncated"] is True
         assert len(payload["text"]) == 1000
         print("CallTool huge text truncation test passed.")
+
+    def test_call_tool_browse_truncates_many_text_nodes(self):
+        print("--- Running Test: Call Tool - Truncate Many Text Nodes ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <script>
+    for (let i = 0; i < 51000; i += 1) {
+      const span = document.createElement('span');
+      span.textContent = 'x';
+      document.body.appendChild(span);
+    }
+  </script>
+</body>
+</html>"""
+        response = self._run_browse({
+            "url": self._fixture_url(html),
+            "maxChars": 200000
+        }, timeout=90)
+        payload = self.get_tool_payload(response)
+        assert payload["truncated"] is True, f"Expected node cap truncation: {payload}"
+        assert len(payload["text"]) < 200000
+        print("CallTool many text nodes truncation test passed.")
 
     def test_call_tool_browse_truncates_huge_html(self):
         print("--- Running Test: Call Tool - Truncate Huge HTML ---")
@@ -637,6 +1118,7 @@ class MCPTestClient:
             self.start_server()
             self.test_handshake()
             self.test_list_tools()
+            self.test_call_tool_status()
             self.test_call_tool_browse_rejects_localhost()
             self.test_call_tool_browse_rejects_localhost_redirect()
             self.test_call_tool_browse_rejects_unsafe_options()
@@ -652,13 +1134,27 @@ class MCPTestClient:
             self.test_call_tool_browse_selector_text()
             self.test_call_tool_browse_network_diagnostics()
             self.test_call_tool_browse_selector_jpeg_screenshot()
+            self.test_call_tool_focused_extractors()
+            self.test_call_tool_screenshot_tool()
+            self.test_call_tool_console_and_network_summary()
+            self.test_call_tool_browse_rejects_oversize_fullpage_screenshot()
+            self.test_call_tool_browse_rejects_oversize_selector_screenshot()
             self.test_call_tool_browse_missing_selector()
             self.test_call_tool_snapshot_success()
+            self.test_call_tool_snapshot_does_not_truncate_only_hidden_candidates()
+            self.test_call_tool_browse_separates_adjacent_inline_text()
             self.test_call_tool_sequence_click_link()
             self.test_call_tool_sequence_form_actions()
+            self.test_call_tool_session_flow_and_max_sessions()
+            self.test_call_tool_session_captcha_detection()
+            self.test_call_tool_session_captcha_attempt()
+            self.test_call_tool_session_start_enforces_concurrent_max_sessions()
+            self.test_call_tool_session_rejects_delayed_private_request()
+            self.test_call_tool_sequence_scrolls_selector_element()
             self.test_call_tool_sequence_rejects_private_redirect()
             self.test_call_tool_sequence_rejects_evaluate_by_default()
             self.test_call_tool_browse_truncates_huge_text()
+            self.test_call_tool_browse_truncates_many_text_nodes()
             self.test_call_tool_browse_truncates_huge_html()
             self.test_call_tool_browse_rejects_private_subresources()
             self.test_call_tool_browse_rejects_private_websocket()

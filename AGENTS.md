@@ -4,7 +4,14 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-This is a TypeScript-based MCP (Model Context Protocol) server that provides browser automation capabilities using Camoufox (a privacy-focused Firefox fork). The server exposes a single `browse` tool that allows AI models to navigate to URLs and retrieve bounded page content with extensive privacy controls and anti-detection features.
+This is a TypeScript-based MCP (Model Context Protocol) server that provides browser automation capabilities using Camoufox (a privacy-focused Firefox fork). The server exposes browser tools with bounded output and extensive privacy controls:
+- `camoufox_status`: return server, browser, queue, session, and policy status.
+- `browse`: navigate once and return bounded text, HTML, metadata, diagnostics, and optional screenshot output.
+- `browse_snapshot`: navigate once and return bounded visible text, ARIA snapshot data, and interactive element metadata.
+- `browse_sequence`: navigate once, run a bounded CSS-selector action sequence, then return final content, snapshot data, diagnostics, and optional screenshot output.
+- `browse_links`, `browse_forms`, `browse_outline`, `browse_find`: low-context page extraction tools.
+- `browse_screenshot`, `browse_console`, `browse_network_summary`: focused screenshot and diagnostics tools.
+- `browse_session_*`: short-lived isolated browser sessions with detection-only CAPTCHA pause/resume support.
 
 ## Commands
 
@@ -13,6 +20,7 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 - `npm run dev` - Watch mode for TypeScript compilation
 - `npm start` - Run the compiled server
 - `npm test` - Build and run Python test client locally
+- `npm run test:unit` - Build and run deterministic policy unit tests
 - `npm run test:camoufox` - Run Camoufox-specific tests
 - `npx eslint src/` - Run ESLint for code quality checks
 
@@ -31,7 +39,7 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 ### Core Server (`src/index.ts`)
 The main MCP server implementation:
 - Uses stdio transport for communication
-- Implements single `browse` tool with comprehensive parameter set
+- Implements one-shot, focused extraction, diagnostics, screenshot, and ephemeral session tools with comprehensive parameter sets
 - Automatically detects environment (Docker/Linux vs local) for headless mode selection
 - Handles graceful shutdown on SIGINT/SIGTERM
 - Returns JSON payloads with visible text by default, optional raw HTML or metadata-only output, and optional screenshot capture

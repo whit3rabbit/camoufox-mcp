@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Camoufox, type LaunchOptions } from "camoufox-js";
-import type { Browser, BrowserContext, Page, Response, Route } from "playwright-core";
+import { launchPath } from "camoufox-js/dist/pkgman.js";
+import type { Browser, BrowserContext, Locator, Page, Response, Route } from "playwright-core";
 import chalk from "chalk";
+import {
+  parseAndValidateBrowserRequestUrl,
+  validateBrowserRequestUrl,
+  validateTargetUrl,
+} from "./policy.js";
 
 type OutputMode = "text" | "html" | "metadata";
 type BrowserInstance = Browser;
@@ -14,6 +20,9 @@ type SupportedOs = "windows" | "macos" | "linux";
 type HeadlessMode = boolean | "virtual";
 type WaitStrategy = "domcontentloaded" | "load" | "networkidle";
 type ScreenshotImageType = "png" | "jpeg";
+type CaptchaPolicy = "detect" | "pause" | "fail" | "attempt";
+type CaptchaProvider = "recaptcha" | "hcaptcha" | "turnstile" | "cloudflare" | "text_captcha" | "generic";
+type StealthProfile = "normal" | "privacy" | "human_assisted" | "fast" | "debug";
 type WindowSize = [number, number];
 type SlotRelease = () => void;
 type ProxyConfig = string | { server: string; username?: string; password?: string };
@@ -63,6 +72,24 @@ interface DiagnosticsPayload {
   network?: NetworkDiagnostic[];
   consoleTruncated?: boolean;
   networkTruncated?: boolean;
+}
+
+interface StatusPayload {
+  version: string;
+  browser: "camoufox";
+  browserAvailable: boolean;
+  browserPath?: string;
+  headlessMode: HeadlessMode;
+  platform: NodeJS.Platform;
+  activeBrowsers: number;
+  activeSessions: number;
+  queuedRequests: number;
+  maxConcurrency: number;
+  maxQueue: number;
+  maxSessions: number;
+  sessionTtlMs: number;
+  unsafeOptionsAllowed: boolean;
+  evaluateAllowed: boolean;
 }
 
 interface PendingBrowse {
@@ -149,6 +176,160 @@ interface SequencePayload {
   diagnostics?: DiagnosticsPayload;
 }
 
+interface LinkEntry {
+  text: string;
+  href: string;
+  selector: string;
+  visible: boolean;
+  confidence: number;
+}
+
+interface LinksPayload {
+  url: string;
+  title?: string;
+  status?: number;
+  contentType?: string;
+  selector?: string;
+  selectorFound: boolean;
+  links: LinkEntry[];
+  truncated: boolean;
+  maxLinks: number;
+  diagnostics?: DiagnosticsPayload;
+}
+
+interface FormFieldEntry {
+  label?: string;
+  type: string;
+  name?: string;
+  selector: string;
+  required: boolean;
+  placeholder?: string;
+  value?: string;
+  options?: Array<{ text: string; value: string }>;
+}
+
+interface FormEntry {
+  selector: string;
+  fields: FormFieldEntry[];
+  submit?: {
+    text?: string;
+    selector: string;
+  };
+}
+
+interface FormsPayload {
+  url: string;
+  title?: string;
+  status?: number;
+  contentType?: string;
+  selector?: string;
+  selectorFound: boolean;
+  forms: FormEntry[];
+  truncated: boolean;
+  maxForms: number;
+  maxFields: number;
+  diagnostics?: DiagnosticsPayload;
+}
+
+interface OutlineHeading {
+  level: number;
+  text: string;
+  selector: string;
+}
+
+interface OutlinePayload {
+  url: string;
+  title?: string;
+  status?: number;
+  contentType?: string;
+  description?: string;
+  selector?: string;
+  selectorFound: boolean;
+  headings: OutlineHeading[];
+  landmarks: string[];
+  truncated: boolean;
+  maxItems: number;
+  diagnostics?: DiagnosticsPayload;
+}
+
+interface FindMatch {
+  text: string;
+  selector: string;
+  score: number;
+}
+
+interface FindPayload {
+  url: string;
+  title?: string;
+  status?: number;
+  contentType?: string;
+  query: string;
+  selector?: string;
+  selectorFound: boolean;
+  matches: FindMatch[];
+  truncated: boolean;
+  maxMatches: number;
+  contextChars: number;
+  diagnostics?: DiagnosticsPayload;
+}
+
+interface NetworkSummaryPayload {
+  url: string;
+  title?: string;
+  status?: number;
+  contentType?: string;
+  requests: number;
+  failed: number;
+  blocked: number;
+  statusCounts: Record<string, number>;
+  resourceTypeCounts: Record<string, number>;
+  topFailures: NetworkDiagnostic[];
+  truncated: boolean;
+}
+
+interface CaptchaIframeInfo {
+  selector: string;
+  src: string;
+  title?: string;
+}
+
+interface CaptchaElementInfo {
+  selector: string;
+  frame?: string;
+  type: "checkbox" | "input" | "button" | "image";
+  label?: string;
+}
+
+interface CaptchaDetection {
+  captchaDetected: boolean;
+  challengeSignals: string[];
+  requiresUserAction?: boolean;
+  challengeType?: "captcha_or_bot_check";
+  message?: string;
+  challengeProvider?: CaptchaProvider;
+  captchaIframes?: CaptchaIframeInfo[];
+  interactiveElements?: CaptchaElementInfo[];
+  suggestedStrategy?: string;
+}
+
+interface SessionRecord {
+  id: string;
+  browser: Browser;
+  context: BrowserContext;
+  page: Page;
+  requestGuard: RequestGuard;
+  diagnostics: DiagnosticsCollector;
+  selectedOS: SupportedOs;
+  waitStrategy: WaitStrategy;
+  releaseSlot: SlotRelease;
+  rawUrls: string[];
+  secrets: string[];
+  createdAt: number;
+  expiresAt: number;
+  timer: ReturnType<typeof setTimeout>;
+  lastNavigationResponse: Response | null;
+}
+
 interface CamoufoxOptions {
   os?: SupportedOs[];
   headless?: HeadlessMode;
@@ -169,20 +350,7 @@ interface CamoufoxOptions {
   args?: string[];
 }
 
-interface ExtractedContent {
-  value: string;
-  truncated: boolean;
-  found: boolean;
-}
-
-interface ScreenshotResult {
-  screenshotMetadata: ScreenshotMetadata;
-  mimeType: string;
-  base64?: string;
-}
-
-interface CommonBrowserInput {
-  url: string;
+interface BrowserLaunchInput {
   os?: SupportedOs;
   waitStrategy?: WaitStrategy;
   timeout?: number;
@@ -203,6 +371,24 @@ interface CommonBrowserInput {
   headless?: boolean;
   includeConsole?: boolean;
   includeNetwork?: boolean;
+  stealthProfile?: StealthProfile;
+  captchaPolicy?: CaptchaPolicy;
+}
+
+interface ExtractedContent {
+  value: string;
+  truncated: boolean;
+  found: boolean;
+}
+
+interface ScreenshotResult {
+  screenshotMetadata: ScreenshotMetadata;
+  mimeType: string;
+  base64?: string;
+}
+
+interface CommonBrowserInput extends BrowserLaunchInput {
+  url: string;
 }
 
 interface BrowserOperationContext {
@@ -294,12 +480,17 @@ const LAUNCH_TIMEOUT_MS = readBoundedInteger("CAMOUFOX_MCP_LAUNCH_TIMEOUT_MS", 3
 const MAX_SCREENSHOT_BYTES = readBoundedInteger("CAMOUFOX_MCP_MAX_SCREENSHOT_BYTES", 5 * 1024 * 1024, 1024, 20 * 1024 * 1024);
 const MAX_SCREENSHOT_WIDTH = readBoundedInteger("CAMOUFOX_MCP_MAX_SCREENSHOT_WIDTH", 1920, 320, 3840);
 const MAX_SCREENSHOT_HEIGHT = readBoundedInteger("CAMOUFOX_MCP_MAX_SCREENSHOT_HEIGHT", 1080, 240, 2160);
+const MAX_SCREENSHOT_AREA = MAX_SCREENSHOT_WIDTH * MAX_SCREENSHOT_HEIGHT;
 const MAX_DIAGNOSTIC_ENTRIES = readBoundedInteger("CAMOUFOX_MCP_MAX_DIAGNOSTIC_ENTRIES", 100, 1, 1000);
 const MAX_DIAGNOSTIC_TEXT_CHARS = readBoundedInteger("CAMOUFOX_MCP_MAX_DIAGNOSTIC_TEXT_CHARS", 2000, 100, 20000);
+const MAX_SESSIONS = readBoundedInteger("CAMOUFOX_MCP_MAX_SESSIONS", 1, 1, 4);
+const SESSION_TTL_MS = readBoundedInteger("CAMOUFOX_MCP_SESSION_TTL_MS", 600000, 300000, 900000);
 
 let activeBrowses = 0;
+let reservedSessions = 0;
 const pendingBrowses: PendingBrowse[] = [];
 const activeBrowsers = new Set<BrowserInstance>();
+const sessions = new Map<string, SessionRecord>();
 
 const viewportSchema = z.object({
   width: z.number().min(320).max(3840).default(1920),
@@ -347,28 +538,40 @@ const screenshotOptionsSchema = z.object({
   quality: z.number().int().min(1).max(100).optional().describe("JPEG quality from 1-100. Ignored for PNG."),
 }).optional().describe("Optional screenshot capture settings. Used only when screenshot is true.");
 
-const commonBrowserToolShape = {
-  url: z.string().describe("The URL to navigate to. Must be a fully qualified http or https URL."),
+const stealthProfileSchema = z.enum(["normal", "privacy", "human_assisted", "fast", "debug"]).optional()
+  .describe("Convenience profile for common Camoufox browser settings. Explicit options override profile values.");
+const captchaPolicySchema = z.enum(["detect", "pause", "fail", "attempt"]).optional()
+  .describe("Challenge handling policy. 'detect' reports signals, 'pause' returns state for human action, 'fail' returns an error, 'attempt' returns enhanced challenge metadata and a bounded screenshot without solving or bypassing.");
+const anyOutputSchema = z.object({}).passthrough();
+
+const commonBrowserOptionShape = {
   os: z.enum(["windows", "macos", "linux"]).optional().describe("Optional OS to spoof. Can be 'windows', 'macos', or 'linux'. If not specified, will rotate between all OS types."),
   waitStrategy: z.enum(["domcontentloaded", "load", "networkidle"]).optional().default("load").describe("Wait strategy for page load. 'domcontentloaded' waits for DOM, 'load' waits for all resources, 'networkidle' waits for network activity to finish."),
   timeout: z.number().min(5000).max(300000).optional().default(60000).describe("Timeout in milliseconds for page load (5-300 seconds)."),
-  humanize: z.boolean().optional().default(true).describe("Enable realistic cursor movements and human-like behavior for better stealth and anti-detection."),
+  humanize: z.boolean().optional().describe("Enable realistic cursor movements and human-like behavior for better stealth and anti-detection."),
   locale: z.string().optional().describe("Browser locale (e.g., 'en-US', 'fr-FR')."),
   viewport: viewportSchema,
-  block_webrtc: z.boolean().optional().default(true).describe("Block WebRTC entirely for enhanced privacy and stealth."),
+  block_webrtc: z.boolean().optional().describe("Block WebRTC entirely for enhanced privacy and stealth."),
   proxy: proxySchema,
-  enable_cache: z.boolean().optional().default(false).describe("Cache pages, requests, etc. Uses more memory but improves performance when revisiting pages."),
+  enable_cache: z.boolean().optional().describe("Cache pages, requests, etc. Uses more memory but improves performance when revisiting pages."),
   firefox_user_prefs: z.record(z.string(), z.any()).optional().describe("Custom Firefox user preferences to set."),
   exclude_addons: z.array(z.string()).optional().describe("List of default addons to exclude (e.g., ['ublock_origin']). Disabled unless CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1."),
   window: windowSchema,
   args: z.array(z.string()).optional().describe("Additional browser command-line arguments to pass to the browser."),
-  block_images: z.boolean().optional().default(false).describe("Block all images for faster loading, reduced bandwidth, and lightweight browsing."),
-  block_webgl: z.boolean().optional().default(false).describe("Block WebGL to prevent fingerprinting and tracking."),
-  disable_coop: z.boolean().optional().default(false).describe("Disable Cross-Origin-Opener-Policy for sites that require it."),
-  geoip: z.boolean().optional().default(true).describe("Automatically detect geolocation based on IP address."),
+  block_images: z.boolean().optional().describe("Block all images for faster loading, reduced bandwidth, and lightweight browsing."),
+  block_webgl: z.boolean().optional().describe("Block WebGL to prevent fingerprinting and tracking."),
+  disable_coop: z.boolean().optional().describe("Disable Cross-Origin-Opener-Policy for sites that require it."),
+  geoip: z.boolean().optional().describe("Automatically detect geolocation based on IP address."),
   headless: z.boolean().optional().describe("Run browser in headless mode. Auto-detects best mode for environment if not specified."),
-  includeConsole: z.boolean().optional().default(false).describe("Include bounded page console diagnostics in the JSON response."),
-  includeNetwork: z.boolean().optional().default(false).describe("Include bounded network diagnostics in the JSON response."),
+  includeConsole: z.boolean().optional().describe("Include bounded page console diagnostics in the JSON response."),
+  includeNetwork: z.boolean().optional().describe("Include bounded network diagnostics in the JSON response."),
+  stealthProfile: stealthProfileSchema,
+  captchaPolicy: captchaPolicySchema,
+};
+
+const commonBrowserToolShape = {
+  url: z.string().describe("The URL to navigate to. Must be a fully qualified http or https URL."),
+  ...commonBrowserOptionShape,
 };
 
 const browseToolShape = {
@@ -389,26 +592,33 @@ const snapshotToolShape = {
 };
 
 const actionTimeoutSchema = z.number().min(100).max(60000).optional();
+const frameSchema = z.string().max(2000).optional()
+  .describe("CSS selector of an iframe. The action's selector is resolved inside this iframe.");
+
 const sequenceActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("click"),
     selector: z.string().max(2000),
+    frame: frameSchema,
     timeout: actionTimeoutSchema,
   }),
   z.object({
     type: z.literal("hover"),
     selector: z.string().max(2000),
+    frame: frameSchema,
     timeout: actionTimeoutSchema,
   }),
   z.object({
     type: z.literal("fill"),
     selector: z.string().max(2000),
+    frame: frameSchema,
     value: z.string().max(MAX_MAX_CHARS),
     timeout: actionTimeoutSchema,
   }),
   z.object({
     type: z.literal("type"),
     selector: z.string().max(2000),
+    frame: frameSchema,
     text: z.string().max(MAX_MAX_CHARS),
     delay: z.number().min(0).max(1000).optional().default(0),
     timeout: actionTimeoutSchema,
@@ -416,18 +626,21 @@ const sequenceActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("select"),
     selector: z.string().max(2000),
+    frame: frameSchema,
     value: z.union([z.string(), z.array(z.string())]),
     timeout: actionTimeoutSchema,
   }),
   z.object({
     type: z.literal("press"),
     selector: z.string().max(2000).optional(),
+    frame: frameSchema,
     key: z.string().min(1).max(100),
     timeout: actionTimeoutSchema,
   }),
   z.object({
     type: z.literal("waitFor"),
     selector: z.string().max(2000).optional(),
+    frame: frameSchema,
     state: z.enum(["attached", "detached", "visible", "hidden"]).optional().default("visible"),
     loadState: z.enum(["domcontentloaded", "load", "networkidle"]).optional(),
     timeout: actionTimeoutSchema,
@@ -435,6 +648,7 @@ const sequenceActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("scroll"),
     selector: z.string().max(2000).optional(),
+    frame: frameSchema,
     deltaX: z.number().min(-10000).max(10000).optional().default(0),
     deltaY: z.number().min(-10000).max(10000).optional().default(600),
     timeout: actionTimeoutSchema,
@@ -458,11 +672,118 @@ const sequenceToolShape = {
   screenshotOptions: screenshotOptionsSchema,
 };
 
+const selectorLimitShape = {
+  selector: z.string().max(2000).optional().describe("Optional CSS selector to limit extraction to one matching element."),
+};
+
+const linksToolShape = {
+  ...commonBrowserToolShape,
+  ...selectorLimitShape,
+  maxLinks: z.number().int().min(1).max(MAX_MAX_ELEMENTS).optional().default(DEFAULT_MAX_ELEMENTS).describe("Maximum links to return."),
+};
+
+const formsToolShape = {
+  ...commonBrowserToolShape,
+  ...selectorLimitShape,
+  maxForms: z.number().int().min(1).max(100).optional().default(20).describe("Maximum forms to return."),
+  maxFields: z.number().int().min(1).max(MAX_MAX_ELEMENTS).optional().default(DEFAULT_MAX_ELEMENTS).describe("Maximum fields to return across all forms."),
+};
+
+const outlineToolShape = {
+  ...commonBrowserToolShape,
+  ...selectorLimitShape,
+  maxItems: z.number().int().min(1).max(MAX_MAX_ELEMENTS).optional().default(DEFAULT_MAX_ELEMENTS).describe("Maximum headings and landmarks to return."),
+};
+
+const findToolShape = {
+  ...commonBrowserToolShape,
+  ...selectorLimitShape,
+  query: z.string().min(1).max(500).describe("Visible text to search for on the page."),
+  maxMatches: z.number().int().min(1).max(50).optional().default(5).describe("Maximum matches to return."),
+  contextChars: z.number().int().min(50).max(2000).optional().default(300).describe("Characters of surrounding visible text to return per match."),
+};
+
+const screenshotToolShape = {
+  ...commonBrowserToolShape,
+  selector: z.string().max(2000).optional().describe("Optional CSS selector for element-only screenshots."),
+  fullPage: z.boolean().optional().default(false).describe("Capture the full page instead of only the viewport."),
+  type: z.enum(["png", "jpeg"]).optional().default("png").describe("Screenshot image type."),
+  quality: z.number().int().min(1).max(100).optional().describe("JPEG quality from 1-100. Ignored for PNG."),
+};
+
+const consoleToolShape = {
+  ...commonBrowserToolShape,
+};
+
+const networkSummaryToolShape = {
+  ...commonBrowserToolShape,
+  maxFailures: z.number().int().min(0).max(50).optional().default(10).describe("Maximum failed requests to include in the summary."),
+};
+
+const sessionStartToolShape = {
+  ...commonBrowserOptionShape,
+};
+
+const sessionIdShape = {
+  sessionId: z.string().min(1).max(200).describe("Session ID returned by browse_session_start."),
+};
+
+const sessionNavigateToolShape = {
+  ...sessionIdShape,
+  url: z.string().describe("The URL to navigate to. Must be a fully qualified http or https URL."),
+  waitStrategy: z.enum(["domcontentloaded", "load", "networkidle"]).optional().describe("Optional wait strategy override for this navigation."),
+  timeout: z.number().min(5000).max(300000).optional().describe("Optional timeout override for this navigation."),
+  outputMode: z.enum(["text", "html", "metadata"]).optional().default("text").describe("Response content mode."),
+  maxChars: z.number().int().min(100).max(MAX_MAX_CHARS).optional().default(DEFAULT_MAX_CHARS).describe("Maximum text or HTML characters to return."),
+  selector: z.string().max(2000).optional().describe("Optional CSS selector to limit extraction."),
+  captchaPolicy: captchaPolicySchema,
+};
+
+const sessionActionToolShape = {
+  ...sessionIdShape,
+  action: sequenceActionSchema.describe("One bounded action to run in the existing session."),
+  maxChars: z.number().int().min(100).max(MAX_MAX_CHARS).optional().default(DEFAULT_MAX_CHARS).describe("Maximum final visible text characters to return in snapshot."),
+  maxElements: z.number().int().min(1).max(MAX_MAX_ELEMENTS).optional().default(DEFAULT_MAX_ELEMENTS).describe("Maximum final snapshot elements to return."),
+  selector: z.string().max(2000).optional().describe("Optional CSS selector to limit final snapshot."),
+  captchaPolicy: captchaPolicySchema,
+};
+
+const sessionSnapshotToolShape = {
+  ...sessionIdShape,
+  maxChars: z.number().int().min(100).max(MAX_MAX_CHARS).optional().default(DEFAULT_MAX_CHARS).describe("Maximum visible text and ARIA snapshot characters to return."),
+  maxElements: z.number().int().min(1).max(MAX_MAX_ELEMENTS).optional().default(DEFAULT_MAX_ELEMENTS).describe("Maximum interactive elements to return."),
+  selector: z.string().max(2000).optional().describe("Optional CSS selector to limit snapshot extraction."),
+  captchaPolicy: captchaPolicySchema,
+};
+
+const sessionResumeToolShape = {
+  ...sessionSnapshotToolShape,
+  waitStrategy: z.enum(["domcontentloaded", "load", "networkidle"]).optional().describe("Optional load state to wait for before reading the session."),
+  timeout: z.number().min(100).max(60000).optional().default(DEFAULT_ACTION_TIMEOUT_MS).describe("Timeout in milliseconds for the resume wait."),
+};
+
+const sessionCloseToolShape = {
+  ...sessionIdShape,
+};
+
 type WithWindowSize<T> = Omit<T, "window"> & { window?: WindowSize };
 type BrowseToolInput = WithWindowSize<z.infer<z.ZodObject<typeof browseToolShape>>>;
 type SnapshotToolInput = WithWindowSize<z.infer<z.ZodObject<typeof snapshotToolShape>>>;
 type SequenceToolInput = WithWindowSize<z.infer<z.ZodObject<typeof sequenceToolShape>>>;
 type SequenceAction = z.infer<typeof sequenceActionSchema>;
+type LinksToolInput = WithWindowSize<z.infer<z.ZodObject<typeof linksToolShape>>>;
+type FormsToolInput = WithWindowSize<z.infer<z.ZodObject<typeof formsToolShape>>>;
+type OutlineToolInput = WithWindowSize<z.infer<z.ZodObject<typeof outlineToolShape>>>;
+type FindToolInput = WithWindowSize<z.infer<z.ZodObject<typeof findToolShape>>>;
+type ScreenshotToolInput = WithWindowSize<z.infer<z.ZodObject<typeof screenshotToolShape>>>;
+type ConsoleToolInput = WithWindowSize<z.infer<z.ZodObject<typeof consoleToolShape>>>;
+type NetworkSummaryToolInput = WithWindowSize<z.infer<z.ZodObject<typeof networkSummaryToolShape>>>;
+type SessionStartToolInput = WithWindowSize<z.infer<z.ZodObject<typeof sessionStartToolShape>>>;
+type SessionNavigateToolInput = z.infer<z.ZodObject<typeof sessionNavigateToolShape>>;
+type SessionActionToolInput = z.infer<z.ZodObject<typeof sessionActionToolShape>>;
+type SessionSnapshotToolInput = z.infer<z.ZodObject<typeof sessionSnapshotToolShape>>;
+type SessionResumeToolInput = z.infer<z.ZodObject<typeof sessionResumeToolShape>>;
+type SessionCloseToolInput = z.infer<z.ZodObject<typeof sessionCloseToolShape>>;
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -612,130 +933,6 @@ function serializeBounded(value: unknown, maxChars: number, rawUrls: string[], s
   return truncateString(sanitizeErrorMessage(serialized, rawUrls, secrets), maxChars);
 }
 
-function normalizeHostname(hostname: string): string {
-  return hostname
-    .toLowerCase()
-    .replace(/^\[/, "")
-    .replace(/\]$/, "")
-    .replace(/\.$/, "");
-}
-
-function isBlockedHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost"
-    || hostname.endsWith(".localhost")
-    || hostname === "local"
-    || hostname.endsWith(".local")
-    || hostname === "ip6-localhost"
-    || hostname === "ip6-loopback"
-  );
-}
-
-function isBlockedIpv4(address: string): boolean {
-  const parts = address.split(".").map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) {
-    return true;
-  }
-
-  const [first, second, third] = parts;
-  return first === 0
-    || first === 10
-    || first === 127
-    || first >= 224
-    || (first === 100 && second >= 64 && second <= 127)
-    || (first === 169 && second === 254)
-    || (first === 172 && second >= 16 && second <= 31)
-    || (first === 192 && second === 0 && (third === 0 || third === 2))
-    || (first === 192 && second === 168)
-    || (first === 198 && second === 51 && third === 100)
-    || (first === 198 && (second === 18 || second === 19))
-    || (first === 203 && second === 0 && third === 113);
-}
-
-function ipv4FromMappedIpv6(address: string): string | undefined {
-  const dotted = address.match(/^(?:::|0(?::0){4}:)ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-  if (dotted) {
-    return dotted[1];
-  }
-
-  const separatorParts = address.split("::");
-  if (separatorParts.length > 2) {
-    return undefined;
-  }
-
-  const head = separatorParts[0] ? separatorParts[0].split(":") : [];
-  const tail = separatorParts[1] ? separatorParts[1].split(":") : [];
-  const fillCount = separatorParts.length === 2 ? 8 - head.length - tail.length : 0;
-  if (fillCount < 0 || (separatorParts.length === 1 && head.length !== 8)) {
-    return undefined;
-  }
-
-  const hextets = [
-    ...head,
-    ...Array<string>(fillCount).fill("0"),
-    ...tail,
-  ].map((hextet) => hextet.padStart(4, "0"));
-
-  if (hextets.length !== 8 || !hextets.slice(0, 5).every((hextet) => hextet === "0000") || hextets[5] !== "ffff") {
-    return undefined;
-  }
-
-  const high = Number.parseInt(hextets[6], 16);
-  const low = Number.parseInt(hextets[7], 16);
-  if (!Number.isFinite(high) || !Number.isFinite(low)) {
-    return undefined;
-  }
-
-  return [
-    high >> 8,
-    high & 255,
-    low >> 8,
-    low & 255,
-  ].join(".");
-}
-
-function isBlockedIpv6(address: string): boolean {
-  const lower = address.toLowerCase();
-  const mappedIpv4 = ipv4FromMappedIpv6(lower);
-  if (mappedIpv4) {
-    return isBlockedIpv4(mappedIpv4);
-  }
-
-  if (lower === "::" || lower === "::1" || lower === "0:0:0:0:0:0:0:1") {
-    return true;
-  }
-
-  const firstHextet = lower.split(":").find(Boolean);
-  if (!firstHextet) {
-    return true;
-  }
-
-  const first = Number.parseInt(firstHextet, 16);
-  if (!Number.isFinite(first)) {
-    return true;
-  }
-
-  return first === 0
-    || (first >= 0xfc00 && first <= 0xfdff)
-    || (first >= 0xfe80 && first <= 0xfebf)
-    || (first >= 0xff00 && first <= 0xffff)
-    || (first === 0x2001 && lower.startsWith("2001:db8"));
-}
-
-function isBlockedIp(address: string): boolean {
-  const normalized = normalizeHostname(address);
-  const version = isIP(normalized);
-  if (version === 4) {
-    return isBlockedIpv4(normalized);
-  }
-
-  if (version === 6) {
-    return isBlockedIpv6(normalized);
-  }
-
-  return true;
-}
-
 function selectOperatingSystem(os: SupportedOs | undefined): SupportedOs {
   if (os) {
     return os;
@@ -752,99 +949,46 @@ function defaultHeadlessMode(headless: boolean | "virtual" | undefined): boolean
   return process.platform === "linux" ? "virtual" : true;
 }
 
-interface ParsedTargetUrl {
-  parsed: URL;
-  hostname: string;
-  needsDnsCheck: boolean;
-}
+function applyStealthProfile<T extends BrowserLaunchInput>(input: T): T {
+  const profile = input.stealthProfile ?? "normal";
+  const defaults: BrowserLaunchInput = {
+    humanize: true,
+    geoip: true,
+    block_webrtc: true,
+    block_images: false,
+    block_webgl: false,
+    disable_coop: false,
+    enable_cache: false,
+    includeConsole: false,
+    includeNetwork: false,
+  };
 
-function parseAndValidateTargetUrl(rawUrl: string): ParsedTargetUrl {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error("URL must be fully qualified.");
-  }
-
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Only http and https URLs are allowed.");
-  }
-
-  const hostname = normalizeHostname(parsed.hostname);
-  if (!hostname) {
-    throw new Error("URL host is required.");
-  }
-
-  if (isBlockedHostname(hostname)) {
-    throw new Error("Local hostnames are not allowed.");
-  }
-
-  if (isIP(hostname)) {
-    if (isBlockedIp(hostname)) {
-      throw new Error("Private, local, or reserved IP addresses are not allowed.");
-    }
-    return {
-      parsed,
-      hostname,
-      needsDnsCheck: false,
-    };
-  }
+  const profileDefaults: Record<StealthProfile, BrowserLaunchInput> = {
+    normal: {},
+    privacy: {
+      block_webgl: true,
+    },
+    human_assisted: {
+      headless: false,
+      enable_cache: true,
+      captchaPolicy: "pause",
+    },
+    fast: {
+      block_images: true,
+      humanize: false,
+    },
+    debug: {
+      includeConsole: true,
+      includeNetwork: true,
+    },
+  };
 
   return {
-    parsed,
-    hostname,
-    needsDnsCheck: true,
+    ...defaults,
+    ...profileDefaults[profile],
+    ...input,
+    stealthProfile: profile,
   };
-}
-
-async function validateTargetUrl(rawUrl: string): Promise<URL> {
-  const { parsed, hostname, needsDnsCheck } = parseAndValidateTargetUrl(rawUrl);
-
-  if (!needsDnsCheck) {
-    return parsed;
-  }
-
-  let records: Array<{ address: string }>;
-  try {
-    records = await lookup(hostname, { all: true, verbatim: true });
-  } catch {
-    throw new Error("Could not resolve URL host.");
-  }
-
-  if (records.length === 0) {
-    throw new Error("URL host did not resolve to an address.");
-  }
-
-  if (records.some((record) => isBlockedIp(record.address))) {
-    throw new Error("URL host resolves to a private, local, or reserved address.");
-  }
-
-  return parsed;
-}
-
-function browserRequestPolicyUrl(rawUrl: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error("URL must be fully qualified.");
-  }
-
-  if (parsed.protocol === "ws:") {
-    parsed.protocol = "http:";
-  } else if (parsed.protocol === "wss:") {
-    parsed.protocol = "https:";
-  }
-
-  return parsed.toString();
-}
-
-function parseAndValidateBrowserRequestUrl(rawUrl: string): ParsedTargetUrl {
-  return parseAndValidateTargetUrl(browserRequestPolicyUrl(rawUrl));
-}
-
-async function validateBrowserRequestUrl(rawUrl: string): Promise<URL> {
-  return validateTargetUrl(browserRequestPolicyUrl(rawUrl));
 }
 
 async function validateProxyConfig(proxy?: ProxyConfig): Promise<void> {
@@ -857,6 +1001,21 @@ async function validateProxyConfig(proxy?: ProxyConfig): Promise<void> {
     await validateTargetUrl(server);
   } catch (error) {
     throw new Error(`Proxy server is not allowed. ${describeError(error)}`, { cause: error });
+  }
+}
+
+async function validateBrowserOptionsInput(input: BrowserLaunchInput): Promise<void> {
+  await validateProxyConfig(input.proxy);
+
+  if (!ALLOW_UNSAFE_OPTIONS && hasUnsafeBrowserOptions(input.args, input.firefox_user_prefs, input.exclude_addons)) {
+    throw new Error(
+      "Unsafe browser options are disabled by server policy. Set CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 to allow args, firefox_user_prefs, or exclude_addons.",
+    );
+  }
+
+  const deniedUnsafeOption = findDeniedUnsafeBrowserOption(input.args, input.firefox_user_prefs);
+  if (deniedUnsafeOption) {
+    throw new Error(`Unsafe browser option is denied by server policy: ${deniedUnsafeOption}.`);
   }
 }
 
@@ -1046,25 +1205,23 @@ function isScreenshotDimensionAllowed(viewport?: { width: number; height: number
   return width <= MAX_SCREENSHOT_WIDTH && height <= MAX_SCREENSHOT_HEIGHT;
 }
 
+function isScreenshotAreaAllowed(width: number, height: number): boolean {
+  return Number.isFinite(width)
+    && Number.isFinite(height)
+    && width > 0
+    && height > 0
+    && width <= MAX_SCREENSHOT_WIDTH
+    && height <= MAX_SCREENSHOT_HEIGHT
+    && width * height <= MAX_SCREENSHOT_AREA;
+}
+
 async function validateCommonBrowserInput(input: CommonBrowserInput): Promise<URL> {
   const targetUrl = await validateTargetUrl(input.url);
-  await validateProxyConfig(input.proxy);
-
-  if (!ALLOW_UNSAFE_OPTIONS && hasUnsafeBrowserOptions(input.args, input.firefox_user_prefs, input.exclude_addons)) {
-    throw new Error(
-      "Unsafe browser options are disabled by server policy. Set CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 to allow args, firefox_user_prefs, or exclude_addons.",
-    );
-  }
-
-  const deniedUnsafeOption = findDeniedUnsafeBrowserOption(input.args, input.firefox_user_prefs);
-  if (deniedUnsafeOption) {
-    throw new Error(`Unsafe browser option is denied by server policy: ${deniedUnsafeOption}.`);
-  }
-
+  await validateBrowserOptionsInput(input);
   return targetUrl;
 }
 
-function buildCamoufoxOptions(input: CommonBrowserInput, selectedOS: SupportedOs, headlessMode: HeadlessMode): CamoufoxOptions {
+function buildCamoufoxOptions(input: BrowserLaunchInput, selectedOS: SupportedOs, headlessMode: HeadlessMode): CamoufoxOptions {
   return {
     os: [selectedOS],
     headless: headlessMode,
@@ -1089,7 +1246,7 @@ function buildCamoufoxOptions(input: CommonBrowserInput, selectedOS: SupportedOs
   };
 }
 
-function browserContextOptions(input: CommonBrowserInput): Parameters<Browser["newContext"]>[0] {
+function browserContextOptions(input: BrowserLaunchInput): Parameters<Browser["newContext"]>[0] {
   return {
     serviceWorkers: "block",
     viewport: input.viewport ? {
@@ -1132,6 +1289,47 @@ async function extractPageContent(
 
       const limit = maxLength + 1;
       const blockedTextTags = new Set(["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT"]);
+      const blockBoundaryTags = new Set([
+        "ADDRESS",
+        "ARTICLE",
+        "ASIDE",
+        "BLOCKQUOTE",
+        "BR",
+        "DD",
+        "DETAILS",
+        "DIALOG",
+        "DIV",
+        "DL",
+        "DT",
+        "FIELDSET",
+        "FIGCAPTION",
+        "FIGURE",
+        "FOOTER",
+        "FORM",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "HEADER",
+        "HR",
+        "LI",
+        "MAIN",
+        "NAV",
+        "OL",
+        "P",
+        "PRE",
+        "SECTION",
+        "TABLE",
+        "TBODY",
+        "TD",
+        "TFOOT",
+        "TH",
+        "THEAD",
+        "TR",
+        "UL",
+      ]);
 
       function appendBounded(current: string, chunk: string): { value: string; truncated: boolean } {
         const available = limit - current.length;
@@ -1161,23 +1359,6 @@ async function extractPageContent(
 
         const style = window.getComputedStyle(element);
         return style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse";
-      }
-
-      function isTextNodeVisible(node: Node): boolean {
-        let current = node.parentElement;
-        while (current) {
-          if (isHiddenElement(current)) {
-            return false;
-          }
-
-          if (current === root) {
-            return true;
-          }
-
-          current = current.parentElement;
-        }
-
-        return true;
       }
 
       if (mode === "html") {
@@ -1266,30 +1447,77 @@ async function extractPageContent(
 
       let text = "";
       let truncated = false;
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-          if (!node.nodeValue || !isTextNodeVisible(node)) {
-            return NodeFilter.FILTER_REJECT;
-          }
+      let visitedNodes = 0;
+      const stack: Array<{ node: Node; closing: boolean }> = [{ node: root, closing: false }];
 
-          return NodeFilter.FILTER_ACCEPT;
-        },
-      });
-
-      while (text.length < limit) {
-        const node = walker.nextNode();
-        if (!node) {
-          break;
+      function appendText(chunk: string): void {
+        const normalized = chunk.replace(/\s+/g, " ").trim();
+        if (!normalized) {
+          return;
         }
 
-        const result = appendBounded(text, node.nodeValue ?? "");
+        const needsSpace = text.length > 0 && !/\s$/.test(text) && !/^[,.;:!?)]/.test(normalized);
+        const result = appendBounded(text, `${needsSpace ? " " : ""}${normalized}`);
         text = result.value;
         truncated = truncated || result.truncated;
       }
 
-      truncated = truncated || text.length > maxLength;
+      function appendBoundary(): void {
+        if (!text || /\n$/.test(text)) {
+          return;
+        }
+
+        const result = appendBounded(text.replace(/[ \t]+$/, ""), "\n");
+        text = result.value;
+        truncated = truncated || result.truncated;
+      }
+
+      while (stack.length > 0 && text.length < limit && visitedNodes < maxNodes) {
+        const current = stack.pop();
+        if (!current) {
+          break;
+        }
+
+        const { node, closing } = current;
+        if (closing) {
+          if (blockBoundaryTags.has((node as Element).tagName)) {
+            appendBoundary();
+          }
+          continue;
+        }
+
+        visitedNodes += 1;
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const element = node as Element;
+          if (isHiddenElement(element)) {
+            continue;
+          }
+
+          if (element.tagName === "BR") {
+            appendBoundary();
+            continue;
+          }
+
+          if (blockBoundaryTags.has(element.tagName)) {
+            appendBoundary();
+          }
+
+          stack.push({ node: element, closing: true });
+          for (let index = element.childNodes.length - 1; index >= 0; index -= 1) {
+            stack.push({ node: element.childNodes[index], closing: false });
+          }
+        } else if (node.nodeType === Node.TEXT_NODE) {
+          appendText(node.nodeValue ?? "");
+        }
+      }
+
+      const normalizedText = text
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      truncated = truncated || stack.length > 0 || visitedNodes >= maxNodes || text.length > maxLength || normalizedText.length > maxLength;
       return {
-        value: text.slice(0, maxLength),
+        value: normalizedText.slice(0, maxLength),
         truncated,
         found: true,
       };
@@ -1335,7 +1563,7 @@ async function buildBrowsePayload(
 
 function createDiagnosticsCollector(
   page: Page,
-  input: CommonBrowserInput,
+  input: BrowserLaunchInput,
   rawUrls: string[],
   secrets: string[],
 ): DiagnosticsCollector {
@@ -1586,13 +1814,15 @@ async function extractSnapshotElements(
       ];
 
       const elements = [];
+      let truncated = false;
       for (const element of candidates) {
-        if (elements.length >= maxItems) {
-          break;
-        }
-
         if (!isVisible(element)) {
           continue;
+        }
+
+        if (elements.length >= maxItems) {
+          truncated = true;
+          break;
         }
 
         const rect = element.getBoundingClientRect();
@@ -1613,7 +1843,7 @@ async function extractSnapshotElements(
 
       return {
         elements,
-        truncated: candidates.length > elements.length,
+        truncated,
         found: true,
       };
     },
@@ -1662,6 +1892,798 @@ async function buildSnapshotPayload(
   return payload;
 }
 
+async function extractLinks(
+  page: Page,
+  maxLinks: number,
+  selector?: string,
+): Promise<{ links: LinkEntry[]; truncated: boolean; found: boolean }> {
+  return page.evaluate(
+    ({ maxItems, cssSelector }: { maxItems: number; cssSelector?: string }) => {
+      const root = cssSelector
+        ? document.querySelector(cssSelector)
+        : document.body ?? document.documentElement;
+
+      if (!root) {
+        return { links: [], truncated: false, found: false };
+      }
+
+      function cssIdent(value: string): string {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+          return CSS.escape(value);
+        }
+        return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+      }
+
+      function selectorFor(element: Element): string {
+        if (element.id) {
+          return `#${cssIdent(element.id)}`;
+        }
+
+        const path: string[] = [];
+        let current: Element | null = element;
+        while (current && current !== document.documentElement && path.length < 8) {
+          let part = current.tagName.toLowerCase();
+          if (current.classList.length > 0) {
+            part += `.${Array.from(current.classList).slice(0, 2).map(cssIdent).join(".")}`;
+          }
+
+          const parent: Element | null = current.parentElement;
+          if (parent) {
+            const sameTagSiblings = Array.from(parent.children).filter((child) => child.tagName === current?.tagName);
+            if (sameTagSiblings.length > 1) {
+              part += `:nth-of-type(${sameTagSiblings.indexOf(current) + 1})`;
+            }
+          }
+
+          path.unshift(part);
+          current = parent;
+        }
+
+        return path.join(" > ");
+      }
+
+      function textOf(element: Element): string {
+        return (element.textContent ?? element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 500);
+      }
+
+      function isVisible(element: Element): boolean {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
+      }
+
+      const candidates = [
+        ...(root.matches("a[href]") ? [root as HTMLAnchorElement] : []),
+        ...Array.from(root.querySelectorAll<HTMLAnchorElement>("a[href]")),
+      ];
+      const links = [];
+      let truncated = false;
+      const seen = new Set<string>();
+
+      for (const link of candidates) {
+        const href = link.href;
+        if (!href || seen.has(href)) {
+          continue;
+        }
+
+        const visible = isVisible(link);
+        const text = textOf(link);
+        if (!text && !visible) {
+          continue;
+        }
+
+        if (links.length >= maxItems) {
+          truncated = true;
+          break;
+        }
+
+        seen.add(href);
+        links.push({
+          text,
+          href,
+          selector: selectorFor(link),
+          visible,
+          confidence: visible && text ? 0.95 : visible || text ? 0.75 : 0.5,
+        });
+      }
+
+      return { links, truncated, found: true };
+    },
+    { maxItems: maxLinks, cssSelector: selector },
+  );
+}
+
+async function buildLinksPayload(
+  page: Page,
+  response: Response | null,
+  maxLinks: number,
+  selector?: string,
+): Promise<LinksPayload> {
+  const extracted = await extractLinks(page, maxLinks, selector);
+  return {
+    url: redactUrl(page.url()),
+    title: await page.title(),
+    status: response?.status(),
+    contentType: response?.headers()["content-type"],
+    selector,
+    selectorFound: extracted.found,
+    links: extracted.links,
+    truncated: extracted.truncated,
+    maxLinks,
+  };
+}
+
+async function extractForms(
+  page: Page,
+  maxForms: number,
+  maxFields: number,
+  selector?: string,
+): Promise<{ forms: FormEntry[]; truncated: boolean; found: boolean }> {
+  return page.evaluate(
+    ({ maxFormItems, maxFieldItems, cssSelector }: { maxFormItems: number; maxFieldItems: number; cssSelector?: string }) => {
+      const root = cssSelector
+        ? document.querySelector(cssSelector)
+        : document.body ?? document.documentElement;
+
+      if (!root) {
+        return { forms: [], truncated: false, found: false };
+      }
+
+      function cssIdent(value: string): string {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+          return CSS.escape(value);
+        }
+        return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+      }
+
+      function selectorFor(element: Element): string {
+        if (element.id) {
+          return `#${cssIdent(element.id)}`;
+        }
+        if (element instanceof HTMLInputElement && element.name) {
+          return `input[name="${element.name.replaceAll("\"", "\\\"")}"]`;
+        }
+        if (element instanceof HTMLTextAreaElement && element.name) {
+          return `textarea[name="${element.name.replaceAll("\"", "\\\"")}"]`;
+        }
+        if (element instanceof HTMLSelectElement && element.name) {
+          return `select[name="${element.name.replaceAll("\"", "\\\"")}"]`;
+        }
+
+        const path: string[] = [];
+        let current: Element | null = element;
+        while (current && current !== document.documentElement && path.length < 8) {
+          let part = current.tagName.toLowerCase();
+          const parent: Element | null = current.parentElement;
+          if (parent) {
+            const sameTagSiblings = Array.from(parent.children).filter((child) => child.tagName === current?.tagName);
+            if (sameTagSiblings.length > 1) {
+              part += `:nth-of-type(${sameTagSiblings.indexOf(current) + 1})`;
+            }
+          }
+          path.unshift(part);
+          current = parent;
+        }
+        return path.join(" > ");
+      }
+
+      function textOf(element: Element | null): string | undefined {
+        const text = (element?.textContent ?? "").replace(/\s+/g, " ").trim();
+        return text ? text.slice(0, 300) : undefined;
+      }
+
+      function labelFor(field: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string | undefined {
+        const aria = field.getAttribute("aria-label")?.trim();
+        if (aria) {
+          return aria.slice(0, 300);
+        }
+
+        const labelledBy = field.getAttribute("aria-labelledby");
+        if (labelledBy) {
+          const text = labelledBy
+            .split(/\s+/)
+            .map((id) => document.getElementById(id)?.textContent ?? "")
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (text) {
+            return text.slice(0, 300);
+          }
+        }
+
+        if (field.id) {
+          const label = document.querySelector(`label[for="${cssIdent(field.id)}"]`);
+          const text = textOf(label);
+          if (text) {
+            return text;
+          }
+        }
+
+        const parentLabel = field.closest("label");
+        const parentText = textOf(parentLabel);
+        if (parentText) {
+          return parentText;
+        }
+
+        return field.getAttribute("placeholder")?.trim().slice(0, 300) || undefined;
+      }
+
+      const formCandidates = [
+        ...(root.matches("form") ? [root as HTMLFormElement] : []),
+        ...Array.from(root.querySelectorAll<HTMLFormElement>("form")),
+      ];
+      if (formCandidates.length === 0) {
+        const looseFields = Array.from(root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select"));
+        if (looseFields.length > 0) {
+          formCandidates.push(root as HTMLFormElement);
+        }
+      }
+
+      const forms = [];
+      let fieldCount = 0;
+      let truncated = false;
+      for (const form of formCandidates) {
+        if (forms.length >= maxFormItems) {
+          truncated = true;
+          break;
+        }
+
+        const fields = [];
+        const fieldCandidates = Array.from(form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select"));
+        for (const field of fieldCandidates) {
+          const tagName = field.tagName.toLowerCase();
+          const type = tagName === "input" ? (field.getAttribute("type") ?? "text").toLowerCase() : tagName;
+          if (["hidden", "button", "submit", "reset", "image"].includes(type)) {
+            continue;
+          }
+          if (fieldCount >= maxFieldItems) {
+            truncated = true;
+            break;
+          }
+
+          fieldCount += 1;
+          const options = field instanceof HTMLSelectElement
+            ? Array.from(field.options).slice(0, 50).map((option) => ({
+              text: option.text.replace(/\s+/g, " ").trim().slice(0, 300),
+              value: option.value,
+            }))
+            : undefined;
+          fields.push({
+            label: labelFor(field),
+            type,
+            name: field.getAttribute("name") ?? undefined,
+            selector: selectorFor(field),
+            required: field.hasAttribute("required"),
+            placeholder: field.getAttribute("placeholder") ?? undefined,
+            value: field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value.slice(0, 300) : undefined,
+            options,
+          });
+        }
+
+        const submit = form.querySelector<HTMLButtonElement | HTMLInputElement>("button[type='submit'], input[type='submit'], button:not([type])");
+        forms.push({
+          selector: selectorFor(form),
+          fields,
+          submit: submit ? {
+            text: textOf(submit) ?? submit.getAttribute("value") ?? undefined,
+            selector: selectorFor(submit),
+          } : undefined,
+        });
+      }
+
+      return { forms, truncated, found: true };
+    },
+    { maxFormItems: maxForms, maxFieldItems: maxFields, cssSelector: selector },
+  );
+}
+
+async function buildFormsPayload(
+  page: Page,
+  response: Response | null,
+  maxForms: number,
+  maxFields: number,
+  selector?: string,
+): Promise<FormsPayload> {
+  const extracted = await extractForms(page, maxForms, maxFields, selector);
+  return {
+    url: redactUrl(page.url()),
+    title: await page.title(),
+    status: response?.status(),
+    contentType: response?.headers()["content-type"],
+    selector,
+    selectorFound: extracted.found,
+    forms: extracted.forms,
+    truncated: extracted.truncated,
+    maxForms,
+    maxFields,
+  };
+}
+
+async function buildOutlinePayload(
+  page: Page,
+  response: Response | null,
+  maxItems: number,
+  selector?: string,
+): Promise<OutlinePayload> {
+  const extracted = await page.evaluate(
+    ({ maxOutlineItems, cssSelector }: { maxOutlineItems: number; cssSelector?: string }) => {
+      const root = cssSelector
+        ? document.querySelector(cssSelector)
+        : document.body ?? document.documentElement;
+
+      if (!root) {
+        return { headings: [], landmarks: [], description: undefined, truncated: false, found: false };
+      }
+
+      function cssIdent(value: string): string {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+          return CSS.escape(value);
+        }
+        return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+      }
+
+      function selectorFor(element: Element): string {
+        if (element.id) {
+          return `#${cssIdent(element.id)}`;
+        }
+        const path: string[] = [];
+        let current: Element | null = element;
+        while (current && current !== document.documentElement && path.length < 8) {
+          let part = current.tagName.toLowerCase();
+          const parent: Element | null = current.parentElement;
+          if (parent) {
+            const currentTagName = current.tagName;
+            const sameTagSiblings = Array.from(parent.children).filter((child: Element) => child.tagName === currentTagName);
+            if (sameTagSiblings.length > 1) {
+              part += `:nth-of-type(${sameTagSiblings.indexOf(current) + 1})`;
+            }
+          }
+          path.unshift(part);
+          current = parent;
+        }
+        return path.join(" > ");
+      }
+
+      const headingCandidates = Array.from(root.querySelectorAll<HTMLHeadingElement>("h1, h2, h3, h4, h5, h6"));
+      const headings: Array<{ level: number; text: string; selector: string }> = [];
+      let truncated = false;
+      for (const heading of headingCandidates) {
+        const text = (heading.textContent ?? "").replace(/\s+/g, " ").trim();
+        if (!text) {
+          continue;
+        }
+        if (headings.length >= maxOutlineItems) {
+          truncated = true;
+          break;
+        }
+        headings.push({
+          level: Number.parseInt(heading.tagName.slice(1), 10),
+          text: text.slice(0, 500),
+          selector: selectorFor(heading),
+        });
+      }
+
+      const landmarkCandidates = Array.from(root.querySelectorAll("[role], header, nav, main, aside, footer, form"));
+      const landmarks: string[] = [];
+      for (const landmark of landmarkCandidates) {
+        if (landmarks.length >= maxOutlineItems) {
+          truncated = true;
+          break;
+        }
+        const role = landmark.getAttribute("role") ?? landmark.tagName.toLowerCase();
+        if (role && !landmarks.includes(role)) {
+          landmarks.push(role);
+        }
+      }
+
+      const description = document.querySelector<HTMLMetaElement>("meta[name='description']")?.content;
+      return {
+        headings,
+        landmarks,
+        description: description?.slice(0, 1000),
+        truncated,
+        found: true,
+      };
+    },
+    { maxOutlineItems: maxItems, cssSelector: selector },
+  );
+
+  return {
+    url: redactUrl(page.url()),
+    title: await page.title(),
+    status: response?.status(),
+    contentType: response?.headers()["content-type"],
+    description: extracted.description,
+    selector,
+    selectorFound: extracted.found,
+    headings: extracted.headings,
+    landmarks: extracted.landmarks,
+    truncated: extracted.truncated,
+    maxItems,
+  };
+}
+
+async function buildFindPayload(
+  page: Page,
+  response: Response | null,
+  query: string,
+  maxMatches: number,
+  contextChars: number,
+  selector?: string,
+): Promise<FindPayload> {
+  const extracted = await page.evaluate(
+    (
+      { searchQuery, maxItems, surroundingChars, cssSelector }: {
+        searchQuery: string;
+        maxItems: number;
+        surroundingChars: number;
+        cssSelector?: string;
+      },
+    ) => {
+      const root = cssSelector
+        ? document.querySelector(cssSelector)
+        : document.body ?? document.documentElement;
+
+      if (!root) {
+        return { matches: [], truncated: false, found: false };
+      }
+
+      function cssIdent(value: string): string {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+          return CSS.escape(value);
+        }
+        return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+      }
+
+      function selectorFor(element: Element): string {
+        if (element.id) {
+          return `#${cssIdent(element.id)}`;
+        }
+        const path: string[] = [];
+        let current: Element | null = element;
+        while (current && current !== document.documentElement && path.length < 8) {
+          let part = current.tagName.toLowerCase();
+          const parent: Element | null = current.parentElement;
+          if (parent) {
+            const currentTagName = current.tagName;
+            const sameTagSiblings = Array.from(parent.children).filter((child: Element) => child.tagName === currentTagName);
+            if (sameTagSiblings.length > 1) {
+              part += `:nth-of-type(${sameTagSiblings.indexOf(current) + 1})`;
+            }
+          }
+          path.unshift(part);
+          current = parent;
+        }
+        return path.join(" > ");
+      }
+
+      function isHiddenElement(element: Element): boolean {
+        if (["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT"].includes(element.tagName)) {
+          return true;
+        }
+        if (element instanceof HTMLElement && element.hidden) {
+          return true;
+        }
+        if (element.getAttribute("aria-hidden") === "true") {
+          return true;
+        }
+        const style = window.getComputedStyle(element);
+        return style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse";
+      }
+
+      function isTextNodeVisible(node: Node): boolean {
+        let current = node.parentElement;
+        while (current) {
+          if (isHiddenElement(current)) {
+            return false;
+          }
+          if (current === root) {
+            return true;
+          }
+          current = current.parentElement;
+        }
+        return true;
+      }
+
+      const normalizedQuery = searchQuery.toLowerCase();
+      const matches = [];
+      let truncated = false;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          if (!node.nodeValue || !isTextNodeVisible(node)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      });
+
+      while (true) {
+        const node = walker.nextNode();
+        if (!node) {
+          break;
+        }
+
+        const rawText = (node.nodeValue ?? "").replace(/\s+/g, " ");
+        const index = rawText.toLowerCase().indexOf(normalizedQuery);
+        if (index < 0) {
+          continue;
+        }
+
+        if (matches.length >= maxItems) {
+          truncated = true;
+          break;
+        }
+
+        const start = Math.max(0, index - surroundingChars);
+        const end = Math.min(rawText.length, index + searchQuery.length + surroundingChars);
+        matches.push({
+          text: rawText.slice(start, end).trim(),
+          selector: selectorFor(node.parentElement ?? root),
+          score: 1,
+        });
+      }
+
+      return { matches, truncated, found: true };
+    },
+    { searchQuery: query, maxItems: maxMatches, surroundingChars: contextChars, cssSelector: selector },
+  );
+
+  return {
+    url: redactUrl(page.url()),
+    title: await page.title(),
+    status: response?.status(),
+    contentType: response?.headers()["content-type"],
+    query,
+    selector,
+    selectorFound: extracted.found,
+    matches: extracted.matches,
+    truncated: extracted.truncated,
+    maxMatches,
+    contextChars,
+  };
+}
+
+const CAPTCHA_STRATEGIES: Record<CaptchaProvider, string> = {
+  recaptcha: "Use the returned iframe metadata and screenshot to guide manual reCAPTCHA completion, then resume the session.",
+  hcaptcha: "Use the returned iframe metadata and screenshot to guide manual hCaptcha completion, then resume the session.",
+  turnstile: "Wait briefly for automatic completion. If the challenge remains, use the returned metadata and screenshot to guide manual completion.",
+  cloudflare: "Wait briefly for automatic completion. If still blocked, use the returned metadata and screenshot to guide manual completion.",
+  text_captcha: "Use the returned screenshot to inspect the prompt, complete it manually, then resume the session.",
+  generic: "Use the returned metadata and screenshot to inspect the challenge, complete it manually, then resume the session.",
+};
+
+function classifyCaptchaProvider(src: string): { provider: CaptchaProvider; selector: string } | undefined {
+  if (/recaptcha/.test(src)) return { provider: "recaptcha", selector: "iframe[src*='recaptcha']" };
+  if (/hcaptcha/.test(src)) return { provider: "hcaptcha", selector: "iframe[src*='hcaptcha']" };
+  if (/turnstile|challenges\.cloudflare/.test(src)) return { provider: "turnstile", selector: "iframe[src*='turnstile'], iframe[src*='challenges.cloudflare']" };
+  return undefined;
+}
+
+async function detectChallenge(page: Page, response?: Response | null, attemptMode = false): Promise<CaptchaDetection> {
+  const { signals, iframeData } = await page.evaluate((collectIframeData: boolean) => {
+    const found: string[] = [];
+    const add = (signal: string) => {
+      if (!found.includes(signal) && found.length < 20) {
+        found.push(signal);
+      }
+    };
+
+    const iframeInfo: Array<{ src: string; title: string; nth: number }> = [];
+    const allIframes = Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe"));
+    for (let i = 0; i < allIframes.length; i++) {
+      const iframe = allIframes[i];
+      const haystack = `${iframe.src} ${iframe.title}`.toLowerCase();
+      if (/(captcha|recaptcha|hcaptcha|turnstile)/.test(haystack)) {
+        add("iframe:captcha");
+        if (collectIframeData) {
+          iframeInfo.push({ src: iframe.src, title: iframe.title, nth: i });
+        }
+      }
+    }
+
+    for (const input of Array.from(document.querySelectorAll<HTMLInputElement>("input"))) {
+      const haystack = `${input.name} ${input.id} ${input.type}`.toLowerCase();
+      if (/(captcha|challenge|token)/.test(haystack)) {
+        add("input:challenge");
+      }
+    }
+
+    const visibleText = (document.body?.innerText ?? "").toLowerCase();
+    if (/verify (that )?you are human|checking your browser|human verification|security check/.test(visibleText)) {
+      add("visibleText:human-verification");
+    }
+
+    const title = document.title.toLowerCase();
+    if (/just a moment|attention required|security check|captcha/.test(title)) {
+      add("title:challenge");
+    }
+
+    if (/cloudflare|cf-challenge|turnstile/.test(document.documentElement.innerHTML.toLowerCase())) {
+      add("markup:challenge-provider");
+    }
+
+    return { signals: found, iframeData: collectIframeData ? iframeInfo : undefined };
+  }, attemptMode).catch(() => ({ signals: [] as string[], iframeData: undefined as Array<{ src: string; title: string; nth: number }> | undefined }));
+
+  if (response?.status() === 403 || response?.status() === 429) {
+    signals.push(`status:${response.status()}`);
+  }
+
+  const uniqueSignals = Array.from(new Set(signals)).slice(0, 20);
+  const captchaDetected = uniqueSignals.length > 0;
+
+  if (!captchaDetected) {
+    return { captchaDetected: false, challengeSignals: [] };
+  }
+
+  const base: CaptchaDetection = {
+    captchaDetected: true,
+    challengeSignals: uniqueSignals,
+    challengeType: "captcha_or_bot_check",
+    message: "A human verification challenge appears to be present. Complete it manually, then resume the session.",
+  };
+
+  if (!attemptMode) return base;
+
+  const captchaIframes: CaptchaIframeInfo[] = [];
+  const interactiveElements: CaptchaElementInfo[] = [];
+  let provider: CaptchaProvider = "generic";
+
+  for (const { src, title, nth } of (iframeData ?? []).slice(0, 3)) {
+    const classified = classifyCaptchaProvider(src);
+    const selector = classified?.selector ?? `iframe:nth-of-type(${nth + 1})`;
+    if (classified) provider = classified.provider;
+
+    captchaIframes.push({ selector, src, title: title || undefined });
+
+    // Best-effort metadata for caller-guided challenge completion.
+    try {
+      const frameLoc = page.frameLocator(selector);
+      const elementTypes: Array<{ loc: ReturnType<typeof frameLoc.locator>; elType: CaptchaElementInfo["type"]; baseSelector: string }> = [
+        { loc: frameLoc.locator('input[type="checkbox"], [role="checkbox"]'), elType: "checkbox", baseSelector: "input[type='checkbox'], [role='checkbox']" },
+        { loc: frameLoc.locator("button, [role='button'], input[type='submit']"), elType: "button", baseSelector: "button, [role='button']" },
+        { loc: frameLoc.locator("input[type='text'], input:not([type]), textarea"), elType: "input", baseSelector: "input[type='text'], textarea" },
+      ];
+
+      for (const { loc, elType, baseSelector } of elementTypes) {
+        const count = Math.min(await loc.count(), 5);
+        for (let i = 0; i < count; i++) {
+          const el = loc.nth(i);
+          const label = await el.getAttribute("aria-label").catch(() => undefined)
+            ?? await el.getAttribute("title").catch(() => undefined)
+            ?? await el.getAttribute("name").catch(() => undefined);
+          interactiveElements.push({
+            selector: count === 1 ? baseSelector : `${baseSelector} >> nth=${i}`,
+            frame: selector,
+            type: elType,
+            label: label || undefined,
+          });
+        }
+      }
+    } catch {
+      // Cross-origin or frame not ready, skip
+    }
+  }
+
+  if (provider === "generic" && uniqueSignals.includes("markup:challenge-provider")) {
+    provider = "cloudflare";
+  }
+  if (provider === "generic" && uniqueSignals.some((signal) => signal.startsWith("input:"))) {
+    provider = "text_captcha";
+  }
+
+  return {
+    ...base,
+    challengeProvider: provider,
+    captchaIframes: captchaIframes.length > 0 ? captchaIframes : undefined,
+    interactiveElements: interactiveElements.length > 0 ? interactiveElements : undefined,
+    suggestedStrategy: CAPTCHA_STRATEGIES[provider],
+  };
+}
+
+function applyCaptchaPolicy<T extends object>(
+  payload: T,
+  detection: CaptchaDetection,
+  policy: CaptchaPolicy | undefined,
+): T & CaptchaDetection {
+  const effectivePolicy = policy ?? "pause";
+  if (!detection.captchaDetected || effectivePolicy === "detect") {
+    return { ...payload, ...detection };
+  }
+
+  if (effectivePolicy === "fail") {
+    throw new Error(`Human verification challenge detected: ${detection.challengeSignals.join(", ")}`);
+  }
+
+  if (effectivePolicy === "attempt") {
+    return {
+      ...payload,
+      ...detection,
+      requiresUserAction: true,
+    };
+  }
+
+  return {
+    ...payload,
+    ...detection,
+    requiresUserAction: true,
+  };
+}
+
+async function maybeDetectCaptcha<T extends object>(
+  page: Page,
+  response: Response | null,
+  payload: T,
+  captchaPolicy: CaptchaPolicy | undefined,
+  safeUrl: string,
+): Promise<{ mergedPayload: T & CaptchaDetection; captchaScreenshot?: ScreenshotResult }> {
+  if (!captchaPolicy) {
+    return { mergedPayload: payload as T & CaptchaDetection };
+  }
+  const attemptMode = captchaPolicy === "attempt";
+  const detection = await detectChallenge(page, response, attemptMode);
+  const mergedPayload = applyCaptchaPolicy(payload, detection, captchaPolicy);
+  const captchaScreenshot = attemptMode && detection.captchaDetected
+    ? await captureCaptchaScreenshot(page, safeUrl)
+    : undefined;
+  return { mergedPayload, captchaScreenshot };
+}
+
+function buildNetworkSummary(
+  page: Page,
+  response: Response | null,
+  diagnostics: DiagnosticsPayload | undefined,
+  maxFailures: number,
+): Promise<NetworkSummaryPayload> {
+  return page.title().then((title) => {
+    const network = diagnostics?.network ?? [];
+    const statusCounts: Record<string, number> = {};
+    const resourceTypeCounts: Record<string, number> = {};
+    let failed = 0;
+    let blocked = 0;
+
+    for (const entry of network) {
+      if (entry.status !== undefined) {
+        statusCounts[String(entry.status)] = (statusCounts[String(entry.status)] ?? 0) + 1;
+      }
+      resourceTypeCounts[entry.resourceType] = (resourceTypeCounts[entry.resourceType] ?? 0) + 1;
+      if (entry.failed || (entry.status !== undefined && entry.status >= 400)) {
+        failed += 1;
+      }
+      if (entry.errorText?.toLowerCase().includes("blocked") || entry.status === 403) {
+        blocked += 1;
+      }
+    }
+
+    return {
+      url: redactUrl(page.url()),
+      title,
+      status: response?.status(),
+      contentType: response?.headers()["content-type"],
+      requests: network.length,
+      failed,
+      blocked,
+      statusCounts,
+      resourceTypeCounts,
+      topFailures: network
+        .filter((entry) => entry.failed || (entry.status !== undefined && entry.status >= 400))
+        .slice(0, maxFailures),
+      truncated: Boolean(diagnostics?.networkTruncated),
+    };
+  });
+}
+
+async function captureCaptchaScreenshot(page: Page, safeUrl: string): Promise<ScreenshotResult | undefined> {
+  try {
+    return await captureScreenshot(page, safeUrl, { fullPage: false });
+  } catch {
+    return undefined;
+  }
+}
+
 async function captureScreenshot(page: Page, safeUrl: string, options?: ScreenshotOptions): Promise<ScreenshotResult> {
   const type = options?.type ?? "png";
   const screenshotMetadata: ScreenshotMetadata = {
@@ -1706,11 +2728,42 @@ async function captureScreenshot(page: Page, safeUrl: string, options?: Screensh
         return { screenshotMetadata, mimeType };
       }
 
+      if (!isScreenshotAreaAllowed(clip.width, clip.height)) {
+        screenshotMetadata.error = `Screenshot selector exceeds server dimension policy (${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}).`;
+        return { screenshotMetadata, mimeType };
+      }
+
       buffer = await page.screenshot({
         ...baseOptions,
         clip,
       });
     } else {
+      if (options?.fullPage) {
+        const dimensions = await page.evaluate(() => {
+          const documentElement = document.documentElement;
+          const body = document.body;
+          return {
+            width: Math.max(
+              documentElement.scrollWidth,
+              documentElement.clientWidth,
+              body?.scrollWidth ?? 0,
+              body?.clientWidth ?? 0,
+            ),
+            height: Math.max(
+              documentElement.scrollHeight,
+              documentElement.clientHeight,
+              body?.scrollHeight ?? 0,
+              body?.clientHeight ?? 0,
+            ),
+          };
+        });
+
+        if (!isScreenshotAreaAllowed(dimensions.width, dimensions.height)) {
+          screenshotMetadata.error = `Full-page screenshot exceeds server dimension policy (${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}).`;
+          return { screenshotMetadata, mimeType };
+        }
+      }
+
       buffer = await page.screenshot({
         ...baseOptions,
         fullPage: Boolean(options?.fullPage),
@@ -1741,7 +2794,7 @@ async function captureScreenshot(page: Page, safeUrl: string, options?: Screensh
   }
 }
 
-function buildSuccessContent(payload: unknown, screenshotResult?: ScreenshotResult): { content: ToolContent[] } {
+function buildSuccessContent(payload: unknown, screenshotResult?: ScreenshotResult): { content: ToolContent[]; structuredContent: Record<string, unknown> } {
   const content: ToolContent[] = [{
     type: "text",
     text: JSON.stringify(payload, null, 2),
@@ -1755,7 +2808,12 @@ function buildSuccessContent(payload: unknown, screenshotResult?: ScreenshotResu
     });
   }
 
-  return { content };
+  return {
+    content,
+    structuredContent: typeof payload === "object" && payload !== null
+      ? payload as Record<string, unknown>
+      : { value: payload },
+  };
 }
 
 function buildToolFailure(label: string, safeUrl: string, error: unknown, input: CommonBrowserInput) {
@@ -1773,28 +2831,29 @@ async function runBrowserOperation<T>(
   input: CommonBrowserInput,
   callback: (context: BrowserOperationContext) => Promise<T>,
 ): Promise<T> {
-  const safeUrl = redactUrl(input.url);
-  const targetUrl = await validateCommonBrowserInput(input);
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
+  const targetUrl = await validateCommonBrowserInput(effectiveInput);
 
   return withBrowserSlot(async () => {
-    const selectedOS = selectOperatingSystem(input.os);
-    const waitStrategy = input.waitStrategy ?? "load";
-    const headlessMode = defaultHeadlessMode(input.headless);
+    const selectedOS = selectOperatingSystem(effectiveInput.os);
+    const waitStrategy = effectiveInput.waitStrategy ?? "load";
+    const headlessMode = defaultHeadlessMode(effectiveInput.headless);
 
     console.error(chalk.blue(`[Camoufox] Launching browser to ${label}: ${safeUrl}`));
 
-    const browser = await launchCamoufoxBrowser(buildCamoufoxOptions(input, selectedOS, headlessMode));
+    const browser = await launchCamoufoxBrowser(buildCamoufoxOptions(effectiveInput, selectedOS, headlessMode));
     activeBrowsers.add(browser);
 
     try {
-      const context = await browser.newContext(browserContextOptions(input));
+      const context = await browser.newContext(browserContextOptions(effectiveInput));
       const requestGuard = await installRequestGuard(context);
       const page = await context.newPage();
       requestGuard.watchPage(page);
 
-      const rawUrls = [input.url, getProxyServer(input.proxy)].filter((rawUrl): rawUrl is string => Boolean(rawUrl));
-      const secrets = getProxySecrets(input.proxy);
-      const diagnostics = createDiagnosticsCollector(page, input, rawUrls, secrets);
+      const rawUrls = [effectiveInput.url, getProxyServer(effectiveInput.proxy)].filter((rawUrl): rawUrl is string => Boolean(rawUrl));
+      const secrets = getProxySecrets(effectiveInput.proxy);
+      const diagnostics = createDiagnosticsCollector(page, effectiveInput, rawUrls, secrets);
       let lastNavigationResponse: Response | null = null;
       page.on("response", (response) => {
         const request = response.request();
@@ -1807,7 +2866,7 @@ async function runBrowserOperation<T>(
       try {
         response = await page.goto(targetUrl.toString(), {
           waitUntil: waitStrategy,
-          timeout: input.timeout,
+          timeout: effectiveInput.timeout,
         });
         lastNavigationResponse = response;
       } catch (navigationError) {
@@ -1841,20 +2900,36 @@ async function runBrowserOperation<T>(
   });
 }
 
+async function assertPageLocationSafe(page: Page): Promise<void> {
+  if (page.url() === "about:blank") {
+    return;
+  }
+
+  await validateTargetUrl(page.url());
+}
+
 async function settleAndAssertSafe(page: Page, requestGuard: RequestGuard): Promise<void> {
   await page.waitForTimeout(GUARD_SETTLE_MS);
   requestGuard.assertAllowed();
-  await validateTargetUrl(page.url());
+  await assertPageLocationSafe(page);
   requestGuard.assertAllowed();
 }
 
 async function runGuardedPageRead<T>(page: Page, requestGuard: RequestGuard, read: () => Promise<T>): Promise<T> {
   try {
-    return await read();
+    requestGuard.assertAllowed();
+    await assertPageLocationSafe(page);
+    requestGuard.assertAllowed();
+    const result = await read();
+    await page.waitForTimeout(GUARD_SETTLE_MS).catch(() => undefined);
+    requestGuard.assertAllowed();
+    await assertPageLocationSafe(page);
+    requestGuard.assertAllowed();
+    return result;
   } catch (readError) {
     await page.waitForTimeout(GUARD_SETTLE_MS).catch(() => undefined);
     requestGuard.assertAllowed();
-    await validateTargetUrl(page.url());
+    await assertPageLocationSafe(page);
     requestGuard.assertAllowed();
     throw readError;
   }
@@ -1864,8 +2939,13 @@ function actionTimeout(action: { timeout?: number }): number {
   return action.timeout ?? DEFAULT_ACTION_TIMEOUT_MS;
 }
 
-async function activateElement(page: Page, selector: string, timeout: number): Promise<void> {
-  const locator = page.locator(selector).first();
+function resolveLocator(page: Page, selector: string, frame?: string): Locator {
+  if (frame) return page.frameLocator(frame).locator(selector).first();
+  return page.locator(selector).first();
+}
+
+async function activateElement(page: Page, selector: string, timeout: number, frame?: string): Promise<void> {
+  const locator = resolveLocator(page, selector, frame);
   await locator.waitFor({ state: "visible", timeout });
   if (!await locator.isEnabled({ timeout })) {
     throw new Error(`Click selector is disabled: ${selector}`);
@@ -1873,9 +2953,10 @@ async function activateElement(page: Page, selector: string, timeout: number): P
   await locator.scrollIntoViewIfNeeded({ timeout });
 
   // Camoufox's virtual display can hang during low-level mouse clicks in CI.
-  // Keep bounded readiness checks, then trigger the element activation in-page.
+  // Keep this as DOM activation, not full pointer hit-testing, until mouse
+  // clicks are stable under the release test display.
   await withTimeout(
-    locator.evaluate((element) => {
+    locator.evaluate((element: HTMLElement) => {
       const clickable = element as HTMLElement & { click?: () => void };
       if (typeof clickable.click === "function") {
         clickable.click();
@@ -1905,39 +2986,43 @@ async function runSequenceAction(
 
   switch (action.type) {
     case "click":
-      await activateElement(page, action.selector, timeout);
+      await activateElement(page, action.selector, timeout, action.frame);
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "hover":
-      await page.locator(action.selector).first().hover({ timeout });
+      await resolveLocator(page, action.selector, action.frame).hover({ timeout });
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "fill":
-      await page.locator(action.selector).first().fill(action.value, { timeout });
+      await resolveLocator(page, action.selector, action.frame).fill(action.value, { timeout });
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "type":
-      await page.locator(action.selector).first().pressSequentially(action.text, {
+      await resolveLocator(page, action.selector, action.frame).pressSequentially(action.text, {
         delay: action.delay,
         timeout,
       });
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "select":
-      await page.locator(action.selector).first().selectOption(action.value, { timeout });
+      await resolveLocator(page, action.selector, action.frame).selectOption(action.value, { timeout });
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "press":
       if (action.selector) {
-        await page.locator(action.selector).first().press(action.key, { timeout });
+        await resolveLocator(page, action.selector, action.frame).press(action.key, { timeout });
       } else {
-        await page.keyboard.press(action.key);
+        await withTimeout(page.keyboard.press(action.key), timeout, "Press action");
       }
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "waitFor":
       if (action.selector) {
-        await page.waitForSelector(action.selector, { state: action.state, timeout });
+        if (action.frame) {
+          await resolveLocator(page, action.selector, action.frame).waitFor({ state: action.state, timeout });
+        } else {
+          await page.waitForSelector(action.selector, { state: action.state, timeout });
+        }
       } else {
         await page.waitForLoadState(action.loadState ?? "load", { timeout });
       }
@@ -1945,9 +3030,37 @@ async function runSequenceAction(
 
     case "scroll":
       if (action.selector) {
-        await page.locator(action.selector).first().scrollIntoViewIfNeeded({ timeout });
+        const locator = resolveLocator(page, action.selector, action.frame);
+        await locator.waitFor({ state: "attached", timeout });
+        await withTimeout(
+          locator.evaluate(async (element: HTMLElement, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
+            const target = element as HTMLElement;
+            const beforeLeft = target.scrollLeft;
+            const beforeTop = target.scrollTop;
+            let scrollEventFired = false;
+            await new Promise<void>((resolve) => {
+              const timer = window.setTimeout(() => resolve(), 100);
+              target.addEventListener("scroll", () => {
+                scrollEventFired = true;
+                window.clearTimeout(timer);
+                resolve();
+              }, { once: true });
+              target.scrollBy(deltaX, deltaY);
+              if (target.scrollLeft === beforeLeft && target.scrollTop === beforeTop) {
+                window.clearTimeout(timer);
+                resolve();
+              }
+            });
+            if (!scrollEventFired && (target.scrollLeft !== beforeLeft || target.scrollTop !== beforeTop)) {
+              target.dispatchEvent(new Event("scroll", { bubbles: true }));
+            }
+          }, { deltaX: action.deltaX, deltaY: action.deltaY }),
+          timeout,
+          "Scroll action",
+        );
+      } else {
+        await page.mouse.wheel(action.deltaX, action.deltaY);
       }
-      await page.mouse.wheel(action.deltaX, action.deltaY);
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "evaluate": {
@@ -2026,15 +3139,63 @@ const server = new McpServer({
   version: SERVER_VERSION,
 });
 
-async function handleBrowse(input: BrowseToolInput) {
-  const safeUrl = redactUrl(input.url);
+const readOnlyOpenWorld: ToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+};
 
-  if (input.screenshot && !isScreenshotDimensionAllowed(input.viewport, input.window)) {
+const nonReadOnlyOpenWorld: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+};
+
+function buildStatusPayload(): StatusPayload {
+  let browserAvailable: boolean;
+  let browserPath: string | undefined;
+  try {
+    browserPath = String(launchPath());
+    browserAvailable = true;
+  } catch {
+    browserAvailable = false;
+  }
+
+  return {
+    version: SERVER_VERSION,
+    browser: "camoufox",
+    browserAvailable,
+    browserPath,
+    headlessMode: defaultHeadlessMode(undefined),
+    platform: process.platform,
+    activeBrowsers: activeBrowsers.size,
+    activeSessions: sessions.size,
+    queuedRequests: pendingBrowses.length,
+    maxConcurrency: MAX_CONCURRENCY,
+    maxQueue: MAX_QUEUE,
+    maxSessions: MAX_SESSIONS,
+    sessionTtlMs: SESSION_TTL_MS,
+    unsafeOptionsAllowed: ALLOW_UNSAFE_OPTIONS,
+    evaluateAllowed: ALLOW_EVALUATE,
+  };
+}
+
+async function handleStatus() {
+  return buildSuccessContent(buildStatusPayload());
+}
+
+async function handleBrowse(input: BrowseToolInput) {
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  if (effectiveInput.screenshot && !isScreenshotDimensionAllowed(effectiveInput.viewport, effectiveInput.window)) {
     return buildToolError(`Screenshot dimensions exceed server policy (${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}).`);
   }
 
   try {
-    return await runBrowserOperation("browse", input, async ({
+    return await runBrowserOperation("browse", effectiveInput, async ({
       page,
       response,
       requestGuard,
@@ -2042,12 +3203,12 @@ async function handleBrowse(input: BrowseToolInput) {
       selectedOS,
       waitStrategy,
     }) => {
-      const mode = input.outputMode ?? "text";
-      const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
+      const mode = effectiveInput.outputMode ?? "text";
+      const charLimit = effectiveInput.maxChars ?? DEFAULT_MAX_CHARS;
       const payload = await runGuardedPageRead(
         page,
         requestGuard,
-        () => buildBrowsePayload(page, response, mode, charLimit, input.selector),
+        () => buildBrowsePayload(page, response, mode, charLimit, effectiveInput.selector),
       );
       requestGuard.assertAllowed();
       if (isBlockedNavigationResponse(payload)) {
@@ -2057,8 +3218,8 @@ async function handleBrowse(input: BrowseToolInput) {
       appendDiagnostics(payload, diagnostics.payload());
 
       let screenshotResult: ScreenshotResult | undefined;
-      if (input.screenshot) {
-        screenshotResult = await captureScreenshot(page, safeUrl, input.screenshotOptions);
+      if (effectiveInput.screenshot) {
+        screenshotResult = await captureScreenshot(page, safeUrl, effectiveInput.screenshotOptions);
         payload.screenshot = screenshotResult.screenshotMetadata;
       }
       requestGuard.assertAllowed();
@@ -2069,27 +3230,32 @@ async function handleBrowse(input: BrowseToolInput) {
         mode,
         charLimit,
         payload,
-        input.proxy,
-        input.block_webrtc,
-        input.block_images,
-        input.block_webgl,
-        input.disable_coop,
-        input.geoip,
+        effectiveInput.proxy,
+        effectiveInput.block_webrtc,
+        effectiveInput.block_images,
+        effectiveInput.block_webgl,
+        effectiveInput.disable_coop,
+        effectiveInput.geoip,
       );
       console.error(chalk.green(`[Camoufox] Successfully retrieved content from ${safeUrl} (${features}).`));
 
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, screenshotResult ?? captchaScreenshot);
+      }
       return buildSuccessContent(payload, screenshotResult);
     });
   } catch (error) {
-    return buildToolFailure("browse", safeUrl, error, input);
+    return buildToolFailure("browse", safeUrl, error, effectiveInput);
   }
 }
 
 async function handleSnapshot(input: SnapshotToolInput) {
-  const safeUrl = redactUrl(input.url);
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
 
   try {
-    return await runBrowserOperation("browse snapshot", input, async ({
+    return await runBrowserOperation("browse snapshot", effectiveInput, async ({
       page,
       response,
       requestGuard,
@@ -2101,53 +3267,58 @@ async function handleSnapshot(input: SnapshotToolInput) {
         () => buildSnapshotPayload(
           page,
           response,
-          input.maxChars ?? DEFAULT_MAX_CHARS,
-          input.maxElements ?? DEFAULT_MAX_ELEMENTS,
-          input.selector,
+          effectiveInput.maxChars ?? DEFAULT_MAX_CHARS,
+          effectiveInput.maxElements ?? DEFAULT_MAX_ELEMENTS,
+          effectiveInput.selector,
         ),
       );
       requestGuard.assertAllowed();
       appendDiagnostics(payload, diagnostics.payload());
       console.error(chalk.green(`[Camoufox] Successfully captured snapshot from ${safeUrl}.`));
 
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
       return buildSuccessContent(payload);
     });
   } catch (error) {
-    return buildToolFailure("browse snapshot", safeUrl, error, input);
+    return buildToolFailure("browse snapshot", safeUrl, error, effectiveInput);
   }
 }
 
 async function handleSequence(input: SequenceToolInput) {
-  const safeUrl = redactUrl(input.url);
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
 
-  if (input.screenshot && !isScreenshotDimensionAllowed(input.viewport, input.window)) {
+  if (effectiveInput.screenshot && !isScreenshotDimensionAllowed(effectiveInput.viewport, effectiveInput.window)) {
     return buildToolError(`Screenshot dimensions exceed server policy (${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}).`);
   }
 
   try {
-    return await runBrowserOperation("browse sequence", input, async ({
+    return await runBrowserOperation("browse sequence", effectiveInput, async ({
       page,
       response,
       requestGuard,
       diagnostics,
       getLastNavigationResponse,
     }) => {
-      const rawUrls = [input.url, getProxyServer(input.proxy)].filter((rawUrl): rawUrl is string => Boolean(rawUrl));
-      const secrets = getProxySecrets(input.proxy);
+      const rawUrls = [effectiveInput.url, getProxyServer(effectiveInput.proxy)].filter((rawUrl): rawUrl is string => Boolean(rawUrl));
+      const secrets = getProxySecrets(effectiveInput.proxy);
       const actions: SequenceActionResult[] = [];
-      for (let index = 0; index < input.actions.length; index += 1) {
-        const result = await runSequenceAction(page, input.actions[index], index, rawUrls, secrets);
+      for (let index = 0; index < effectiveInput.actions.length; index += 1) {
+        const result = await runSequenceAction(page, effectiveInput.actions[index], index, rawUrls, secrets);
         actions.push(result);
         await settleAndAssertSafe(page, requestGuard);
       }
 
-      const mode = input.outputMode ?? "text";
-      const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
+      const mode = effectiveInput.outputMode ?? "text";
+      const charLimit = effectiveInput.maxChars ?? DEFAULT_MAX_CHARS;
       const finalResponse = getLastNavigationResponse() ?? response;
       const contentPayload = await runGuardedPageRead(
         page,
         requestGuard,
-        () => buildBrowsePayload(page, finalResponse, mode, charLimit, input.selector),
+        () => buildBrowsePayload(page, finalResponse, mode, charLimit, effectiveInput.selector),
       );
       requestGuard.assertAllowed();
       if (isBlockedNavigationResponse(contentPayload)) {
@@ -2161,8 +3332,8 @@ async function handleSequence(input: SequenceToolInput) {
           page,
           finalResponse,
           charLimit,
-          input.maxElements ?? DEFAULT_MAX_ELEMENTS,
-          input.selector,
+          effectiveInput.maxElements ?? DEFAULT_MAX_ELEMENTS,
+          effectiveInput.selector,
         ),
       );
       requestGuard.assertAllowed();
@@ -2178,7 +3349,7 @@ async function handleSequence(input: SequenceToolInput) {
         outputMode: mode,
         truncated: contentPayload.truncated,
         maxChars: charLimit,
-        selector: input.selector,
+        selector: effectiveInput.selector,
         selectorFound: contentPayload.selectorFound,
         text: contentPayload.text,
         html: contentPayload.html,
@@ -2187,23 +3358,600 @@ async function handleSequence(input: SequenceToolInput) {
       appendDiagnostics(payload, diagnostics.payload());
 
       let screenshotResult: ScreenshotResult | undefined;
-      if (input.screenshot) {
-        screenshotResult = await captureScreenshot(page, safeUrl, input.screenshotOptions);
+      if (effectiveInput.screenshot) {
+        screenshotResult = await captureScreenshot(page, safeUrl, effectiveInput.screenshotOptions);
         payload.screenshot = screenshotResult.screenshotMetadata;
       }
       requestGuard.assertAllowed();
 
       console.error(chalk.green(`[Camoufox] Successfully ran ${actions.length} actions from ${safeUrl}.`));
+      if (effectiveInput.captchaPolicy) {
+        const finalResponse = getLastNavigationResponse() ?? response;
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, finalResponse, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, screenshotResult ?? captchaScreenshot);
+      }
       return buildSuccessContent(payload, screenshotResult);
     });
   } catch (error) {
-    return buildToolFailure("browse sequence", safeUrl, error, input);
+    return buildToolFailure("browse sequence", safeUrl, error, effectiveInput);
   }
 }
 
-server.tool("browse", browseToolShape, async (input) => handleBrowse(input as BrowseToolInput));
-server.tool("browse_snapshot", snapshotToolShape, async (input) => handleSnapshot(input as SnapshotToolInput));
-server.tool("browse_sequence", sequenceToolShape, async (input) => handleSequence(input as SequenceToolInput));
+async function handleLinks(input: LinksToolInput) {
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  try {
+    return await runBrowserOperation("browse links", effectiveInput, async ({
+      page,
+      response,
+      requestGuard,
+      diagnostics,
+    }) => {
+      const payload = await runGuardedPageRead(
+        page,
+        requestGuard,
+        () => buildLinksPayload(
+          page,
+          response,
+          effectiveInput.maxLinks ?? DEFAULT_MAX_ELEMENTS,
+          effectiveInput.selector,
+        ),
+      );
+      requestGuard.assertAllowed();
+      appendDiagnostics(payload, diagnostics.payload());
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(payload);
+    });
+  } catch (error) {
+    return buildToolFailure("browse links", safeUrl, error, effectiveInput);
+  }
+}
+
+async function handleForms(input: FormsToolInput) {
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  try {
+    return await runBrowserOperation("browse forms", effectiveInput, async ({
+      page,
+      response,
+      requestGuard,
+      diagnostics,
+    }) => {
+      const payload = await runGuardedPageRead(
+        page,
+        requestGuard,
+        () => buildFormsPayload(
+          page,
+          response,
+          effectiveInput.maxForms ?? 20,
+          effectiveInput.maxFields ?? DEFAULT_MAX_ELEMENTS,
+          effectiveInput.selector,
+        ),
+      );
+      requestGuard.assertAllowed();
+      appendDiagnostics(payload, diagnostics.payload());
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(payload);
+    });
+  } catch (error) {
+    return buildToolFailure("browse forms", safeUrl, error, effectiveInput);
+  }
+}
+
+async function handleOutline(input: OutlineToolInput) {
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  try {
+    return await runBrowserOperation("browse outline", effectiveInput, async ({
+      page,
+      response,
+      requestGuard,
+      diagnostics,
+    }) => {
+      const payload = await runGuardedPageRead(
+        page,
+        requestGuard,
+        () => buildOutlinePayload(
+          page,
+          response,
+          effectiveInput.maxItems ?? DEFAULT_MAX_ELEMENTS,
+          effectiveInput.selector,
+        ),
+      );
+      requestGuard.assertAllowed();
+      appendDiagnostics(payload, diagnostics.payload());
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(payload);
+    });
+  } catch (error) {
+    return buildToolFailure("browse outline", safeUrl, error, effectiveInput);
+  }
+}
+
+async function handleFind(input: FindToolInput) {
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  try {
+    return await runBrowserOperation("browse find", effectiveInput, async ({
+      page,
+      response,
+      requestGuard,
+      diagnostics,
+    }) => {
+      const payload = await runGuardedPageRead(
+        page,
+        requestGuard,
+        () => buildFindPayload(
+          page,
+          response,
+          effectiveInput.query,
+          effectiveInput.maxMatches ?? 5,
+          effectiveInput.contextChars ?? 300,
+          effectiveInput.selector,
+        ),
+      );
+      requestGuard.assertAllowed();
+      appendDiagnostics(payload, diagnostics.payload());
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(payload);
+    });
+  } catch (error) {
+    return buildToolFailure("browse find", safeUrl, error, effectiveInput);
+  }
+}
+
+async function handleScreenshot(input: ScreenshotToolInput) {
+  const effectiveInput = applyStealthProfile(input);
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  if (!isScreenshotDimensionAllowed(effectiveInput.viewport, effectiveInput.window)) {
+    return buildToolError(`Screenshot dimensions exceed server policy (${MAX_SCREENSHOT_WIDTH}x${MAX_SCREENSHOT_HEIGHT}).`);
+  }
+
+  try {
+    return await runBrowserOperation("browse screenshot", effectiveInput, async ({
+      page,
+      response,
+      requestGuard,
+    }) => {
+      const screenshotResult = await captureScreenshot(page, safeUrl, {
+        fullPage: effectiveInput.fullPage,
+        selector: effectiveInput.selector,
+        type: effectiveInput.type,
+        quality: effectiveInput.quality,
+      });
+      requestGuard.assertAllowed();
+      const payload = {
+        url: redactUrl(page.url()),
+        title: await page.title(),
+        status: response?.status(),
+        contentType: response?.headers()["content-type"],
+        screenshot: screenshotResult.screenshotMetadata,
+      };
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, screenshotResult ?? captchaScreenshot);
+      }
+      return buildSuccessContent(payload, screenshotResult);
+    });
+  } catch (error) {
+    return buildToolFailure("browse screenshot", safeUrl, error, effectiveInput);
+  }
+}
+
+async function handleConsole(input: ConsoleToolInput) {
+  const effectiveInput = applyStealthProfile({
+    ...input,
+    includeConsole: true,
+    includeNetwork: false,
+  });
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  try {
+    return await runBrowserOperation("browse console", effectiveInput, async ({
+      page,
+      response,
+      requestGuard,
+      diagnostics,
+    }) => {
+      await runGuardedPageRead(page, requestGuard, () => page.title());
+      requestGuard.assertAllowed();
+      const payload = {
+        url: redactUrl(page.url()),
+        title: await page.title(),
+        status: response?.status(),
+        contentType: response?.headers()["content-type"],
+        console: diagnostics.payload()?.console ?? [],
+        consoleTruncated: diagnostics.payload()?.consoleTruncated ?? false,
+      };
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(payload);
+    });
+  } catch (error) {
+    return buildToolFailure("browse console", safeUrl, error, effectiveInput);
+  }
+}
+
+async function handleNetworkSummary(input: NetworkSummaryToolInput) {
+  const effectiveInput = applyStealthProfile({
+    ...input,
+    includeConsole: false,
+    includeNetwork: true,
+  });
+  const safeUrl = redactUrl(effectiveInput.url);
+
+  try {
+    return await runBrowserOperation("browse network summary", effectiveInput, async ({
+      page,
+      response,
+      requestGuard,
+      diagnostics,
+    }) => {
+      const payload = await runGuardedPageRead(
+        page,
+        requestGuard,
+        () => buildNetworkSummary(page, response, diagnostics.payload(), effectiveInput.maxFailures ?? 10),
+      );
+      requestGuard.assertAllowed();
+      if (effectiveInput.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, effectiveInput.captchaPolicy, safeUrl);
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(payload);
+    });
+  } catch (error) {
+    return buildToolFailure("browse network summary", safeUrl, error, effectiveInput);
+  }
+}
+
+function sessionExpiresAt(session: SessionRecord): string {
+  return new Date(session.expiresAt).toISOString();
+}
+
+function resetSessionTtl(session: SessionRecord): void {
+  clearTimeout(session.timer);
+  session.expiresAt = Date.now() + SESSION_TTL_MS;
+  session.timer = setTimeout(() => {
+    void closeSession(session.id, "expired");
+  }, SESSION_TTL_MS);
+}
+
+function reserveSessionSlot(): boolean {
+  if (reservedSessions >= MAX_SESSIONS) {
+    return false;
+  }
+
+  reservedSessions += 1;
+  return true;
+}
+
+function releaseSessionSlot(): void {
+  reservedSessions = Math.max(0, reservedSessions - 1);
+}
+
+async function closeSession(sessionId: string, reason: string): Promise<boolean> {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return false;
+  }
+
+  sessions.delete(sessionId);
+  clearTimeout(session.timer);
+  console.error(chalk.blue(`[Camoufox] Closing session ${sessionId} (${reason}).`));
+  try {
+    await closeBrowser(session.browser);
+  } finally {
+    session.releaseSlot();
+    releaseSessionSlot();
+  }
+  return true;
+}
+
+async function closeActiveSessions(): Promise<void> {
+  const ids = Array.from(sessions.keys());
+  await Promise.all(ids.map((id) => closeSession(id, "shutdown")));
+}
+
+async function getSession(sessionId: string): Promise<SessionRecord> {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    throw new Error(`Unknown or closed session: ${sessionId}`);
+  }
+
+  if (Date.now() > session.expiresAt) {
+    await closeSession(sessionId, "expired");
+    throw new Error(`Session expired: ${sessionId}`);
+  }
+
+  resetSessionTtl(session);
+  return session;
+}
+
+async function navigateSession(
+  session: SessionRecord,
+  url: string,
+  waitStrategy?: WaitStrategy,
+  timeout?: number,
+): Promise<Response | null> {
+  const safeUrl = redactUrl(url);
+  const targetUrl = await validateTargetUrl(url);
+  session.rawUrls.push(url);
+
+  try {
+    const response = await session.page.goto(targetUrl.toString(), {
+      waitUntil: waitStrategy ?? session.waitStrategy,
+      timeout: timeout ?? DEFAULT_ACTION_TIMEOUT_MS * 6,
+    });
+    session.lastNavigationResponse = response;
+    await settleAndAssertSafe(session.page, session.requestGuard);
+    return response;
+  } catch (navigationError) {
+    const navigationErrorMessage = describeError(navigationError).toLowerCase();
+    if (/\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback|::1)\b/.test(navigationErrorMessage)) {
+      throw new Error(`Blocked unsafe browser request to ${safeUrl}.`, { cause: navigationError });
+    }
+
+    session.requestGuard.assertAllowed();
+    throw navigationError;
+  }
+}
+
+async function handleSessionStart(input: SessionStartToolInput) {
+  const effectiveInput = applyStealthProfile({
+    ...input,
+    captchaPolicy: input.captchaPolicy ?? "pause",
+  });
+
+  if (!reserveSessionSlot()) {
+    return buildToolError(`Too many active sessions. Maximum is ${MAX_SESSIONS}.`);
+  }
+
+  let release: SlotRelease | undefined;
+  let browser: Browser | undefined;
+  try {
+    await validateBrowserOptionsInput(effectiveInput);
+    release = await acquireBrowserSlot();
+    const selectedOS = selectOperatingSystem(effectiveInput.os);
+    const waitStrategy = effectiveInput.waitStrategy ?? "load";
+    const headlessMode = defaultHeadlessMode(effectiveInput.headless);
+
+    browser = await launchCamoufoxBrowser(buildCamoufoxOptions(effectiveInput, selectedOS, headlessMode));
+    activeBrowsers.add(browser);
+    const context = await browser.newContext(browserContextOptions(effectiveInput));
+    const requestGuard = await installRequestGuard(context);
+    const page = await context.newPage();
+    requestGuard.watchPage(page);
+
+    const id = `sess_${randomUUID()}`;
+    const rawUrls = [getProxyServer(effectiveInput.proxy)].filter((rawUrl): rawUrl is string => Boolean(rawUrl));
+    const secrets = getProxySecrets(effectiveInput.proxy);
+    const now = Date.now();
+    const session: SessionRecord = {
+      id,
+      browser,
+      context,
+      page,
+      requestGuard,
+      diagnostics: createDiagnosticsCollector(page, effectiveInput, rawUrls, secrets),
+      selectedOS,
+      waitStrategy,
+      releaseSlot: release,
+      rawUrls,
+      secrets,
+      createdAt: now,
+      expiresAt: now + SESSION_TTL_MS,
+      timer: setTimeout(() => {
+        void closeSession(id, "expired");
+      }, SESSION_TTL_MS),
+      lastNavigationResponse: null,
+    };
+
+    sessions.set(id, session);
+    browser = undefined;
+    release = undefined;
+
+    return buildSuccessContent({
+      sessionId: id,
+      expiresAt: sessionExpiresAt(session),
+      browser: "camoufox",
+      selectedOS,
+      headlessMode,
+      stealthProfile: effectiveInput.stealthProfile,
+      captchaPolicy: effectiveInput.captchaPolicy ?? "pause",
+    });
+  } catch (error) {
+    if (browser) {
+      await closeBrowser(browser);
+    }
+    if (release) {
+      release();
+    }
+    releaseSessionSlot();
+    const errorMessage = sanitizeErrorMessage(
+      describeError(error),
+      [getProxyServer(effectiveInput.proxy)].filter((rawUrl): rawUrl is string => Boolean(rawUrl)),
+      getProxySecrets(effectiveInput.proxy),
+    );
+    return buildToolError(`Failed to start browser session. Error: ${errorMessage}`);
+  }
+}
+
+async function handleSessionNavigate(input: SessionNavigateToolInput) {
+  try {
+    const session = await getSession(input.sessionId);
+    const response = await navigateSession(session, input.url, input.waitStrategy, input.timeout);
+    const mode = input.outputMode ?? "text";
+    const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
+    const payload = await runGuardedPageRead(
+      session.page,
+      session.requestGuard,
+      () => buildBrowsePayload(session.page, response, mode, charLimit, input.selector),
+    );
+    const basePayload = { sessionId: session.id, expiresAt: sessionExpiresAt(session), ...payload };
+    if (input.captchaPolicy) {
+      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(session.page, response, basePayload, input.captchaPolicy, redactUrl(input.url));
+      return buildSuccessContent(mergedPayload, captchaScreenshot);
+    }
+    return buildSuccessContent(basePayload);
+  } catch (error) {
+    return buildToolError(`Failed to navigate session. Error: ${sanitizeErrorMessage(describeError(error), [input.url], [])}`);
+  }
+}
+
+async function handleSessionAction(input: SessionActionToolInput) {
+  try {
+    const session = await getSession(input.sessionId);
+    const actionResult = await runSequenceAction(session.page, input.action, 0, session.rawUrls, session.secrets);
+    await settleAndAssertSafe(session.page, session.requestGuard);
+    const snapshot = await runGuardedPageRead(
+      session.page,
+      session.requestGuard,
+      () => buildSnapshotPayload(
+        session.page,
+        session.lastNavigationResponse,
+        input.maxChars ?? DEFAULT_MAX_CHARS,
+        input.maxElements ?? DEFAULT_MAX_ELEMENTS,
+        input.selector,
+      ),
+    );
+    const basePayload = { sessionId: session.id, expiresAt: sessionExpiresAt(session), action: actionResult, snapshot };
+    if (input.captchaPolicy) {
+      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(session.page, session.lastNavigationResponse, basePayload, input.captchaPolicy, redactUrl(session.page.url()));
+      return buildSuccessContent(mergedPayload, captchaScreenshot);
+    }
+    return buildSuccessContent(basePayload);
+  } catch (error) {
+    return buildToolError(`Failed to run session action. Error: ${sanitizeErrorMessage(describeError(error), [], [])}`);
+  }
+}
+
+async function handleSessionSnapshot(input: SessionSnapshotToolInput) {
+  try {
+    const session = await getSession(input.sessionId);
+    const snapshot = await runGuardedPageRead(
+      session.page,
+      session.requestGuard,
+      () => buildSnapshotPayload(
+        session.page,
+        session.lastNavigationResponse,
+        input.maxChars ?? DEFAULT_MAX_CHARS,
+        input.maxElements ?? DEFAULT_MAX_ELEMENTS,
+        input.selector,
+      ),
+    );
+    const basePayload = { sessionId: session.id, expiresAt: sessionExpiresAt(session), ...snapshot };
+    if (input.captchaPolicy) {
+      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(session.page, session.lastNavigationResponse, basePayload, input.captchaPolicy, redactUrl(session.page.url()));
+      return buildSuccessContent(mergedPayload, captchaScreenshot);
+    }
+    return buildSuccessContent(basePayload);
+  } catch (error) {
+    return buildToolError(`Failed to snapshot session. Error: ${sanitizeErrorMessage(describeError(error), [], [])}`);
+  }
+}
+
+async function handleSessionResume(input: SessionResumeToolInput) {
+  try {
+    const session = await getSession(input.sessionId);
+    if (input.waitStrategy) {
+      await session.page.waitForLoadState(input.waitStrategy, { timeout: input.timeout ?? DEFAULT_ACTION_TIMEOUT_MS });
+      await settleAndAssertSafe(session.page, session.requestGuard);
+    }
+    return await handleSessionSnapshot(input);
+  } catch (error) {
+    return buildToolError(`Failed to resume session. Error: ${sanitizeErrorMessage(describeError(error), [], [])}`);
+  }
+}
+
+async function handleSessionClose(input: SessionCloseToolInput) {
+  const closed = await closeSession(input.sessionId, "requested");
+  return buildSuccessContent({
+    sessionId: input.sessionId,
+    closed,
+  });
+}
+
+function registerJsonTool<InputArgs extends z.ZodRawShape>(
+  name: string,
+  description: string,
+  inputSchema: InputArgs,
+  annotations: ToolAnnotations,
+  handler: (input: z.infer<z.ZodObject<InputArgs>>) => Promise<unknown>,
+): void {
+  const registerTool = server.registerTool.bind(server) as unknown as (
+    toolName: string,
+    config: {
+      description: string;
+      inputSchema: InputArgs;
+      outputSchema: typeof anyOutputSchema;
+      annotations: ToolAnnotations;
+    },
+    callback: (input: unknown) => Promise<unknown>,
+  ) => void;
+
+  registerTool(
+    name,
+    {
+      description,
+      inputSchema,
+      outputSchema: anyOutputSchema,
+      annotations,
+    },
+    async (input: unknown): Promise<unknown> => handler(input as z.infer<z.ZodObject<InputArgs>>),
+  );
+}
+
+server.registerTool(
+  "camoufox_status",
+  {
+    description: "Return server, browser, queue, session, and policy status without launching a page.",
+    inputSchema: {},
+    outputSchema: anyOutputSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async () => handleStatus(),
+);
+
+registerJsonTool("browse", "Navigate once and return bounded page content.", browseToolShape, readOnlyOpenWorld, async (input) => handleBrowse(input as BrowseToolInput));
+registerJsonTool("browse_snapshot", "Navigate once and return visible text, ARIA snapshot, and interactive metadata.", snapshotToolShape, readOnlyOpenWorld, async (input) => handleSnapshot(input as SnapshotToolInput));
+registerJsonTool("browse_sequence", "Navigate once, run bounded selector actions, then return final state.", sequenceToolShape, nonReadOnlyOpenWorld, async (input) => handleSequence(input as SequenceToolInput));
+registerJsonTool("browse_links", "Navigate once and return only visible navigable links.", linksToolShape, readOnlyOpenWorld, async (input) => handleLinks(input as LinksToolInput));
+registerJsonTool("browse_forms", "Navigate once and return form fields and submit controls.", formsToolShape, readOnlyOpenWorld, async (input) => handleForms(input as FormsToolInput));
+registerJsonTool("browse_outline", "Navigate once and return page headings and landmarks.", outlineToolShape, readOnlyOpenWorld, async (input) => handleOutline(input as OutlineToolInput));
+registerJsonTool("browse_find", "Navigate once, search visible text, and return bounded context matches.", findToolShape, readOnlyOpenWorld, async (input) => handleFind(input as FindToolInput));
+registerJsonTool("browse_screenshot", "Navigate once and capture a bounded screenshot.", screenshotToolShape, readOnlyOpenWorld, async (input) => handleScreenshot(input as ScreenshotToolInput));
+registerJsonTool("browse_console", "Navigate once and return bounded console diagnostics.", consoleToolShape, readOnlyOpenWorld, async (input) => handleConsole(input as ConsoleToolInput));
+registerJsonTool("browse_network_summary", "Navigate once and return a bounded network diagnostic summary.", networkSummaryToolShape, readOnlyOpenWorld, async (input) => handleNetworkSummary(input as NetworkSummaryToolInput));
+registerJsonTool("browse_session_start", "Start an isolated short-lived browser session.", sessionStartToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionStart(input as SessionStartToolInput));
+registerJsonTool("browse_session_navigate", "Navigate an existing browser session.", sessionNavigateToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionNavigate(input as SessionNavigateToolInput));
+registerJsonTool("browse_session_action", "Run one bounded action in an existing browser session.", sessionActionToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionAction(input as SessionActionToolInput));
+registerJsonTool("browse_session_snapshot", "Read the current state of an existing browser session.", sessionSnapshotToolShape, readOnlyOpenWorld, async (input) => handleSessionSnapshot(input as SessionSnapshotToolInput));
+registerJsonTool("browse_session_resume", "Resume a paused session after human action and return current state.", sessionResumeToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionResume(input as SessionResumeToolInput));
+registerJsonTool("browse_session_close", "Close an existing browser session.", sessionCloseToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionClose(input as SessionCloseToolInput));
 
 async function closeBrowser(browser: BrowserInstance): Promise<void> {
   activeBrowsers.delete(browser);
@@ -2248,6 +3996,7 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   console.error(chalk.yellow(`\n[Camoufox] Shutting down server after ${signal}...`));
   rejectPendingBrowses("Server is shutting down.");
+  await closeActiveSessions();
   await closeActiveBrowsers();
   process.exit(0);
 }

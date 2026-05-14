@@ -42,10 +42,11 @@
         "lint": "npx eslint src/",
         "fetch:camoufox": "npx camoufox-js fetch",
         "test": "npm run test:local",
+        "test:unit": "npm run build && node tests/unit_policy.mjs",
         "test:local": "npm run build && python3 tests/test_client.py --mode local",
         "test:camoufox": "npm run fetch:camoufox && npm run test:local",
         "test:docker": "./tests/run_tests.sh",
-        "test:all": "npm run lint && npm audit && npm run fetch:camoufox && npm run test:local"
+        "test:all": "npm run lint && npm audit && npm run test:unit && npm run fetch:camoufox && npm run test:local"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",

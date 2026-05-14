@@ -320,12 +320,21 @@ npm install camoufox-mcp-server@latest
 
 ## Usage
 
-Once configured, the Camoufox MCP server provides one-shot browser tools that your AI assistant can use to navigate websites, inspect page structure, and run bounded interaction sequences.
+Once configured, the Camoufox MCP server provides bounded browser tools that your AI assistant can use to navigate websites, inspect page structure, extract low-context page data, capture screenshots, inspect diagnostics, and run short-lived isolated sessions.
 
 Available tools:
+- `camoufox_status`: return server, browser, queue, session, and policy status.
 - `browse`: navigate once and return bounded text, HTML, metadata, diagnostics, and optional screenshot output.
 - `browse_snapshot`: navigate once and return bounded visible text, ARIA snapshot data, and interactive element metadata.
 - `browse_sequence`: navigate once, run up to 25 CSS-selector actions, then return final content, snapshot data, diagnostics, and optional screenshot output.
+- `browse_links`: navigate once and return navigable links only.
+- `browse_forms`: navigate once and return form fields and submit controls.
+- `browse_outline`: navigate once and return headings, description, and landmarks.
+- `browse_find`: navigate once, search visible text, and return bounded context matches.
+- `browse_screenshot`: navigate once and capture a bounded screenshot as a first-class tool.
+- `browse_console`: navigate once and return bounded console diagnostics.
+- `browse_network_summary`: navigate once and return bounded network counts and failures.
+- `browse_session_start`, `browse_session_navigate`, `browse_session_action`, `browse_session_snapshot`, `browse_session_resume`, `browse_session_close`: manage short-lived isolated browser sessions.
 
 ### Natural Language Triggers
 
@@ -377,6 +386,8 @@ Visit github.com and tell me what's trending
 ```
 
 The AI will usually use `browse` to retrieve visible text by default. Raw HTML is available with `outputMode: "html"`, and page structure is available through `browse_snapshot`.
+
+For lower-context workflows, prefer `browse_links`, `browse_forms`, `browse_outline`, or `browse_find` over raw HTML. Use session tools for login flows, multi-step forms, carts, dashboards, and human-in-the-loop challenge handling.
 
 ### Advanced Usage
 
@@ -552,6 +563,8 @@ All tools share the browser and navigation parameters below:
 | `headless` | boolean | auto | Run in headless mode (auto-detects best mode if not set) |
 | `includeConsole` | boolean | false | Include bounded page console diagnostics |
 | `includeNetwork` | boolean | false | Include bounded network diagnostics |
+| `stealthProfile` | enum | `normal` | Profile shortcut: `normal`, `privacy`, `human_assisted`, `fast`, or `debug`. Explicit options override profile defaults |
+| `captchaPolicy` | enum | tool-specific | Safe challenge policy: `detect`, `pause`, `fail`, or `attempt` |
 
 `browse` also accepts:
 
@@ -583,6 +596,42 @@ All tools share the browser and navigation parameters below:
 | `screenshot` | boolean | false | Capture a screenshot after all actions finish |
 | `screenshotOptions` | object | none | Optional `{ fullPage, selector, type, quality }` screenshot settings |
 
+Focused extractor tools also accept:
+
+| Tool | Extra parameters |
+|------|------------------|
+| `browse_links` | `selector`, `maxLinks` |
+| `browse_forms` | `selector`, `maxForms`, `maxFields` |
+| `browse_outline` | `selector`, `maxItems` |
+| `browse_find` | `query`, `selector`, `maxMatches`, `contextChars` |
+| `browse_screenshot` | `selector`, `fullPage`, `type`, `quality` |
+| `browse_network_summary` | `maxFailures` |
+
+Session tools:
+
+| Tool | Purpose |
+|------|---------|
+| `browse_session_start` | Start an isolated in-memory browser session. No persistent profiles are used |
+| `browse_session_navigate` | Navigate an existing session and return bounded content |
+| `browse_session_action` | Run one bounded action in the current session |
+| `browse_session_snapshot` | Read visible text, ARIA snapshot, and interactive metadata from the current session |
+| `browse_session_resume` | Resume after human action, optionally waiting for a load state |
+| `browse_session_close` | Close the session and release its browser slot |
+
+Sessions are ephemeral and memory-only. By default, one active session is allowed, and it expires after 10 minutes of inactivity.
+
+Challenge handling is detection-only. If `captchaPolicy` is `pause`, session tools return `captchaDetected`, `requiresUserAction`, `challengeSignals`, and the `sessionId` so a user can complete the challenge manually and then call `browse_session_resume`. If `captchaPolicy` is `attempt`, the response also includes best-effort challenge provider metadata, iframe and interactive-element hints, suggested manual strategy text, and a bounded screenshot. The server does not solve or bypass CAPTCHA or bot checks.
+
+Stealth profiles:
+
+| Profile | Defaults |
+|---------|----------|
+| `normal` | Humanized cursor, GeoIP, WebRTC blocked |
+| `privacy` | `normal` plus WebGL blocked |
+| `human_assisted` | Visible browser, cache enabled, CAPTCHA pause policy |
+| `fast` | Images blocked and humanization disabled |
+| `debug` | Console and network diagnostics enabled |
+
 ## Server Policy
 
 The server applies deny-by-default policy checks before and during browsing:
@@ -592,16 +641,18 @@ The server applies deny-by-default policy checks before and during browsing:
 | `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` | unset | Set to `1` to allow `args`, `firefox_user_prefs`, and `exclude_addons` |
 | `CAMOUFOX_MCP_ALLOW_EVALUATE` | unset | Set to `1` to allow `browse_sequence` evaluate actions. This is unsafe because page JavaScript can read page state |
 | `CAMOUFOX_MCP_MAX_CONCURRENCY` | `1` | Maximum simultaneous browse requests, clamped to 1-8 |
+| `CAMOUFOX_MCP_MAX_SESSIONS` | `1` | Maximum active browser sessions, clamped to 1-4 |
+| `CAMOUFOX_MCP_SESSION_TTL_MS` | `600000` | Session inactivity TTL, clamped to 300000-900000 |
 | `CAMOUFOX_MCP_MAX_QUEUE` | `8` | Maximum queued browse requests, clamped to 0-100 |
 | `CAMOUFOX_MCP_QUEUE_TIMEOUT_MS` | `30000` | Maximum time a request can wait for a browse slot, clamped to 1000-300000 |
 | `CAMOUFOX_MCP_LAUNCH_TIMEOUT_MS` | `30000` | Maximum time browser launch can take, clamped to 1000-300000 |
 | `CAMOUFOX_MCP_MAX_SCREENSHOT_BYTES` | `5242880` | Maximum screenshot payload size, clamped to 1 KiB-20 MiB |
-| `CAMOUFOX_MCP_MAX_SCREENSHOT_WIDTH` | `1920` | Maximum screenshot viewport/window width, clamped to 320-3840 |
-| `CAMOUFOX_MCP_MAX_SCREENSHOT_HEIGHT` | `1080` | Maximum screenshot viewport/window height, clamped to 240-2160 |
+| `CAMOUFOX_MCP_MAX_SCREENSHOT_WIDTH` | `1920` | Maximum screenshot viewport/window, selector, or full-page width, clamped to 320-3840 |
+| `CAMOUFOX_MCP_MAX_SCREENSHOT_HEIGHT` | `1080` | Maximum screenshot viewport/window, selector, or full-page height, clamped to 240-2160 |
 | `CAMOUFOX_MCP_MAX_DIAGNOSTIC_ENTRIES` | `100` | Maximum console or network diagnostic entries, clamped to 1-1000 |
 | `CAMOUFOX_MCP_MAX_DIAGNOSTIC_TEXT_CHARS` | `2000` | Maximum diagnostic text characters per entry, clamped to 100-20000 |
 
-URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, link-local addresses, and hosts that resolve to those addresses. The server checks the initial URL, proxy server URL, final navigation URL, intercepted browser requests, and WebSocket requests. It does not make traffic anonymous unless you configure an allowed upstream proxy.
+URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, link-local addresses, multicast addresses, reserved/special-purpose IPv4 and IPv6 ranges, and hosts that resolve to those addresses. The server checks the initial URL, proxy server URL, final navigation URL, intercepted browser requests, and WebSocket requests. It does not make traffic anonymous unless you configure an allowed upstream proxy.
 
 ## Development
 
@@ -617,6 +668,9 @@ npm install
 
 # Build the TypeScript code
 npm run build
+
+# Run deterministic policy tests
+npm run test:unit
 
 # Run locally
 npm start
