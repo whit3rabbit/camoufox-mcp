@@ -11,7 +11,7 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 - `browse_sequence`: navigate once, run a bounded CSS-selector action sequence, then return final content, snapshot data, diagnostics, and optional screenshot output.
 - `browse_links`, `browse_forms`, `browse_outline`, `browse_find`: low-context page extraction tools.
 - `browse_screenshot`, `browse_console`, `browse_network_summary`: focused screenshot and diagnostics tools.
-- `browse_session_*`: short-lived isolated browser sessions with detection-only CAPTCHA pause/resume support.
+- `browse_session_*`: short-lived isolated browser sessions with detection-only CAPTCHA pause/resume and best-effort `attempt` metadata support.
 
 ## Commands
 
@@ -105,6 +105,9 @@ The `browse` tool supports extensive configuration options:
 
 - The server validates tool calls using comprehensive Zod schemas
 - Initial URLs, final navigation URLs, and browser requests are rejected if they target localhost, private, link-local, or reserved IP space
+- Session slots are reserved before launch so concurrent starts cannot exceed `CAMOUFOX_MCP_MAX_SESSIONS`
+- Session reads/actions must surface delayed blocked requests before returning page state
+- CAPTCHA handling is detection-only. `captchaPolicy: "attempt"` may return challenge metadata and a bounded screenshot, but must not solve or bypass CAPTCHA or bot checks
 - Browser instances are created per request (not persisted)
 - Error handling includes detailed error messages for debugging
 - Process lifecycle is managed with proper cleanup on exit

@@ -439,8 +439,14 @@ class MCPTestClient:
 
     def test_call_tool_browse_selector_jpeg_screenshot(self):
         print("--- Running Test: Call Tool - Browse Selector JPEG Screenshot ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <h1 style="display:inline-block;width:320px;height:80px;margin:0">Screenshot target</h1>
+</body>
+</html>"""
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._fixture_url(html),
             "selector": "h1",
             "screenshot": True,
             "screenshotOptions": {
@@ -508,8 +514,14 @@ class MCPTestClient:
 
     def test_call_tool_screenshot_tool(self):
         print("--- Running Test: Call Tool - Screenshot Tool ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <h1 style="display:inline-block;width:320px;height:80px;margin:0">Screenshot target</h1>
+</body>
+</html>"""
         response = self._run_screenshot({
-            "url": "https://www.example.com",
+            "url": self._fixture_url(html),
             "selector": "h1",
             "type": "jpeg",
             "quality": 70
@@ -1027,9 +1039,7 @@ class MCPTestClient:
 <html>
 <body>
   <script>
-    window.addEventListener('load', () => {
-      new WebSocket('wss://127.0.0.1:1/socket');
-    });
+    new WebSocket('wss://127.0.0.1:1/socket');
   </script>
   <p>private websocket fixture</p>
 </body>

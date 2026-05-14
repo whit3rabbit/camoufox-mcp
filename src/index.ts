@@ -2950,11 +2950,10 @@ async function activateElement(page: Page, selector: string, timeout: number, fr
   if (!await locator.isEnabled({ timeout })) {
     throw new Error(`Click selector is disabled: ${selector}`);
   }
-  await locator.scrollIntoViewIfNeeded({ timeout });
 
   // Camoufox's virtual display can hang during low-level mouse clicks in CI.
-  // Keep this as DOM activation, not full pointer hit-testing, until mouse
-  // clicks are stable under the release test display.
+  // Keep this as DOM activation, without Playwright's stability-gated scroll
+  // or pointer hit-testing, until mouse actions are stable under Xvfb.
   await withTimeout(
     locator.evaluate((element: HTMLElement) => {
       const clickable = element as HTMLElement & { click?: () => void };
