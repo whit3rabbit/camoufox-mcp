@@ -141,6 +141,7 @@ CLAUDE.md
 
 # Project specific
 data-files/
+.syntext/
 .DS_Store
 TODO.md
 publish_docker.sh

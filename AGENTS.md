@@ -5,13 +5,13 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ## Project Overview
 
 This is a TypeScript-based MCP (Model Context Protocol) server that provides browser automation capabilities using Camoufox (a privacy-focused Firefox fork). The server exposes browser tools with bounded output and extensive privacy controls:
-- `camoufox_status`: return server, browser, queue, session, and policy status.
+- `camoufox_status`: return server, browser, queue, session, policy, and network-security posture status.
 - `browse`: navigate once and return bounded text, HTML, metadata, diagnostics, and optional screenshot output.
 - `browse_snapshot`: navigate once and return bounded visible text, ARIA snapshot data, and interactive element metadata.
 - `browse_sequence`: navigate once, run a bounded CSS-selector action sequence, then return final content, snapshot data, diagnostics, and optional screenshot output.
 - `browse_links`, `browse_forms`, `browse_outline`, `browse_find`: low-context page extraction tools.
 - `browse_screenshot`, `browse_console`, `browse_network_summary`: focused screenshot and diagnostics tools.
-- `browse_session_*`: short-lived isolated browser sessions with detection-only CAPTCHA pause/resume and best-effort `attempt` metadata support.
+- `browse_session_*`: short-lived isolated browser sessions with challenge pause/resume, best-effort `attempt` metadata, and optional LLM-assisted provider playbooks when `CAPTCHA_AUTONOMOUS=true`.
 
 ## Commands
 
@@ -107,7 +107,9 @@ The `browse` tool supports extensive configuration options:
 - Initial URLs, final navigation URLs, and browser requests are rejected if they target localhost, private, link-local, or reserved IP space
 - Session slots are reserved before launch so concurrent starts cannot exceed `CAMOUFOX_MCP_MAX_SESSIONS`
 - Session reads/actions must surface delayed blocked requests before returning page state
-- CAPTCHA handling is detection-only. `captchaPolicy: "attempt"` may return challenge metadata and a bounded screenshot, but must not solve or bypass CAPTCHA or bot checks
+- Click actions support `clickMode`: `dom` is the default CI/Xvfb-stable DOM activation path, `pointer` uses Playwright pointer input, and `auto` tries pointer first before DOM fallback.
+- `camoufox_status.networkSecurity` reports application-layer best-effort SSRF policy and conservative network sandbox posture. Docker/container detection is not proof of egress filtering.
+- CAPTCHA handling is manual by default. `captchaPolicy: "attempt"` returns challenge metadata, interactive elements, a bounded screenshot, and a suggested strategy. When `CAPTCHA_AUTONOMOUS=true` is set, responses use `challengeHandling: "llm_assisted"` and include provider-specific `challengePlaybook` context when known. The server never solves CAPTCHAs itself or invokes an external skill.
 - Browser instances are created per request (not persisted)
 - Error handling includes detailed error messages for debugging
 - Process lifecycle is managed with proper cleanup on exit

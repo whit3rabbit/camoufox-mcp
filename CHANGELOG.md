@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added opt-in `clickMode: "auto"` for click actions, `CAPTCHA_AUTONOMOUS=true` for LLM-assisted challenge context and provider playbooks, and network sandbox posture reporting in `camoufox_status`.
+
+### Fixed
+- Bounded `browse_sequence` with a cumulative action timeout policy and graceful fatal shutdown cleanup.
+
 ## [2.0.5] - 2026-05-13
 
 ### Fixed
