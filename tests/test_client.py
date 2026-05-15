@@ -1,5 +1,7 @@
+import sys
+sys.dont_write_bytecode = True
+
 import json
-import base64
 import os
 import subprocess
 import threading
@@ -7,6 +9,110 @@ import time
 import urllib.parse
 import uuid
 import argparse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+TEST_ENV = {
+    "NODE_ENV": "test",
+    "CAMOUFOX_MCP_TEST_ALLOW_LOCALHOST": "1",
+}
+
+
+class FixtureServer:
+    def __init__(self, mode):
+        self.mode = mode
+        self.fixtures = {}
+        self.httpd = None
+        self.thread = None
+        self.base_url = None
+
+    def start(self):
+        if self.httpd:
+            return
+
+        fixtures = self.fixtures
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                parsed = urllib.parse.urlparse(self.path)
+                if parsed.path == "/example":
+                    self._send_html("""<!doctype html>
+<html>
+<head><title>Example Domain</title></head>
+<body>
+  <h1>Example Domain</h1>
+  <p>This domain is for use in illustrative examples in documents.</p>
+  <p><a href="/more">More information</a></p>
+</body>
+</html>""")
+                    return
+
+                if parsed.path == "/redirect-to":
+                    target = urllib.parse.parse_qs(parsed.query).get("url", [""])[0]
+                    self.send_response(302)
+                    self.send_header("Location", target)
+                    self.end_headers()
+                    return
+
+                if parsed.path == "/slow":
+                    seconds = float(urllib.parse.parse_qs(parsed.query).get("seconds", ["6"])[0])
+                    time.sleep(seconds)
+                    self._send_html("<!doctype html><html><body>slow fixture</body></html>")
+                    return
+
+                if parsed.path.startswith("/recaptcha/"):
+                    self._send_html("<!doctype html><html><body>captcha frame</body></html>")
+                    return
+
+                if parsed.path.startswith("/fixture/"):
+                    fixture_id = parsed.path.rsplit("/", 1)[-1]
+                    html = fixtures.get(fixture_id)
+                    if html is None:
+                        self.send_error(404)
+                        return
+                    self._send_html(html)
+                    return
+
+                self.send_error(404)
+
+            def _send_html(self, html):
+                body = html.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        self.httpd = ThreadingHTTPServer(("0.0.0.0", 0), Handler)
+        port = self.httpd.server_address[1]
+        browser_host = "host.docker.internal" if self.mode == "docker" else "127.0.0.1"
+        self.base_url = f"http://{browser_host}:{port}"
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        if not self.httpd:
+            return
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        if self.thread:
+            self.thread.join(timeout=5)
+        self.httpd = None
+        self.thread = None
+        self.base_url = None
+
+    def url(self, path):
+        self.start()
+        return f"{self.base_url}{path}"
+
+    def fixture_url(self, html):
+        self.start()
+        fixture_id = str(uuid.uuid4())
+        self.fixtures[fixture_id] = html
+        return f"{self.base_url}/fixture/{fixture_id}"
 
 class MCPTestClient:
     def __init__(self, mode='docker', image_name="camoufox-mcp-server:latest", docker_platform=None, env=None):
@@ -19,12 +125,27 @@ class MCPTestClient:
         self.stderr_thread = None
         self.responses = {}
         self.stderr_lines = []
+        self.fixture_server = FixtureServer(mode)
 
     def start_server(self):
+        self.fixture_server.start()
+        server_env = dict(self.env)
+        if server_env.get("CAMOUFOX_MCP_TEST_ALLOW_LOCALHOST") == "1" and "CAMOUFOX_MCP_TEST_ALLOWED_LOCALHOST_PORTS" not in server_env:
+            parsed_fixture_url = urllib.parse.urlparse(self.fixture_server.base_url)
+            server_env["CAMOUFOX_MCP_TEST_ALLOWED_LOCALHOST_PORTS"] = str(parsed_fixture_url.port)
+
         if self.mode == 'docker':
             print(f"Starting container from image: {self.image_name}")
-            command = ["docker", "run", "-i", "--rm", "--init"]
-            for key, value in self.env.items():
+            command = [
+                "docker",
+                "run",
+                "-i",
+                "--rm",
+                "--init",
+                "--add-host",
+                "host.docker.internal:host-gateway",
+            ]
+            for key, value in server_env.items():
                 command.extend(["-e", f"{key}={value}"])
             if self.docker_platform:
                 command.extend(["--platform", self.docker_platform])
@@ -36,7 +157,7 @@ class MCPTestClient:
         process_env = None
         if self.mode != 'docker':
             process_env = os.environ.copy()
-            process_env.update(self.env)
+            process_env.update(server_env)
 
         self.process = subprocess.Popen(
             command,
@@ -125,6 +246,8 @@ class MCPTestClient:
         if self.process:
             self.process.terminate()
             self.process.wait()
+            self.process = None
+        self.fixture_server.stop()
         print("Server stopped.")
 
     def get_tool_text(self, response):
@@ -209,6 +332,40 @@ class MCPTestClient:
         assert tool_by_name["browse"]["annotations"]["readOnlyHint"] is True
         assert tool_by_name["browse_sequence"]["annotations"]["readOnlyHint"] is False
 
+        expected_output_properties = {
+            "camoufox_status": {"version", "browser", "activeSessions", "evaluateAllowed"},
+            "browse_links": {"url", "selectorFound", "links", "maxLinks"},
+            "browse_forms": {"url", "selectorFound", "forms", "maxForms", "maxFields"},
+            "browse_outline": {"url", "selectorFound", "headings", "landmarks"},
+            "browse_find": {"url", "query", "matches", "contextChars"},
+            "browse_network_summary": {"url", "requests", "statusCounts", "topFailures"},
+        }
+        for tool_name, properties in expected_output_properties.items():
+            output_properties = tool_by_name[tool_name]["outputSchema"].get("properties", {})
+            missing = properties - set(output_properties)
+            assert not missing, f"{tool_name} output schema missing properties: {missing}"
+
+        def find_property_schema(schema, property_name):
+            if isinstance(schema, dict):
+                properties = schema.get("properties")
+                if isinstance(properties, dict) and property_name in properties:
+                    return properties[property_name]
+                for value in schema.values():
+                    found = find_property_schema(value, property_name)
+                    if found:
+                        return found
+            elif isinstance(schema, list):
+                for value in schema:
+                    found = find_property_schema(value, property_name)
+                    if found:
+                        return found
+            return None
+
+        click_mode_schema = find_property_schema(tool_by_name["browse_sequence"]["inputSchema"], "clickMode")
+        assert click_mode_schema, "browse_sequence click action should expose clickMode"
+        assert set(click_mode_schema.get("enum", [])) == {"dom", "pointer"}
+        assert click_mode_schema.get("default") == "dom"
+
         expected_captcha_policies = {"detect", "pause", "fail", "attempt"}
         for tool_name, tool in tool_by_name.items():
             captcha_schema = tool["inputSchema"].get("properties", {}).get("captchaPolicy")
@@ -258,13 +415,25 @@ class MCPTestClient:
     def _run_network_summary(self, arguments, timeout=60):
         return self._run_tool("browse_network_summary", arguments, timeout=timeout)
 
+    def _url(self, path):
+        return self.fixture_server.url(path)
+
+    def _example_url(self):
+        return self._url("/example")
+
     def _fixture_url(self, html):
-        encoded = base64.b64encode(html.encode("utf-8")).decode("ascii")
-        return f"https://httpbin.org/base64/{urllib.parse.quote(encoded, safe='')}"
+        return self.fixture_server.fixture_url(html)
+
+    def _test_env(self, extra=None):
+        env = dict(TEST_ENV)
+        env.update(extra or {})
+        return env
 
     def test_call_tool_status(self):
         print("--- Running Test: Call Tool - Status ---")
         response = self._run_status()
+        text = self.get_tool_text(response)
+        assert "\n" not in text, f"Expected minified JSON text content: {text}"
         payload = self.get_tool_payload(response)
         assert payload["browser"] == "camoufox"
         assert payload["version"]
@@ -279,15 +448,26 @@ class MCPTestClient:
 
     def test_call_tool_browse_rejects_localhost(self):
         print("--- Running Test: Call Tool - Reject Localhost URL ---")
-        response = self._call_tool("browse", {"url": "http://127.0.0.1:80"}, timeout=10)
-        assert response and response.get("result", {}).get("isError"), f"Localhost URL was not rejected: {response}"
-        assert "not allowed" in self.get_tool_text(response).lower()
+        strict_client = MCPTestClient(
+            mode=self.mode,
+            image_name=self.image_name,
+            docker_platform=self.docker_platform,
+            env={}
+        )
+        try:
+            strict_client.start_server()
+            strict_client.test_handshake()
+            response = strict_client._call_tool("browse", {"url": "http://127.0.0.1:80"}, timeout=10)
+            assert response and response.get("result", {}).get("isError"), f"Localhost URL was not rejected: {response}"
+            assert "not allowed" in strict_client.get_tool_text(response).lower()
+        finally:
+            strict_client.stop_server()
         print("CallTool localhost rejection test passed.")
 
     def test_call_tool_browse_rejects_localhost_redirect(self):
         print("--- Running Test: Call Tool - Reject Redirect To Localhost ---")
         response = self._call_tool("browse", {
-            "url": "https://httpbin.org/redirect-to?url=http%3A%2F%2F127.0.0.1%3A80"
+            "url": self._url("/redirect-to?url=http%3A%2F%2F127.0.0.1%3A80")
         }, timeout=30)
         assert response and response.get("result", {}).get("isError"), f"Localhost redirect was not rejected: {response}"
         assert "blocked unsafe browser request" in self.get_tool_text(response).lower()
@@ -296,7 +476,7 @@ class MCPTestClient:
     def test_call_tool_browse_rejects_unsafe_options(self):
         print("--- Running Test: Call Tool - Reject Unsafe Browser Options ---")
         response = self._call_tool("browse", {
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "args": ["--remote-debugging-port=0"]
         }, timeout=10)
         assert response and response.get("result", {}).get("isError"), f"Unsafe browser options were not rejected: {response}"
@@ -306,7 +486,7 @@ class MCPTestClient:
     def test_call_tool_browse_rejects_excluded_addons(self):
         print("--- Running Test: Call Tool - Reject Excluded Addons ---")
         response = self._call_tool("browse", {
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "exclude_addons": ["ublock_origin"]
         }, timeout=10)
         assert response and response.get("result", {}).get("isError"), f"Excluded addons were not rejected: {response}"
@@ -316,7 +496,7 @@ class MCPTestClient:
     def test_call_tool_browse_rejects_private_proxy_string(self):
         print("--- Running Test: Call Tool - Reject Private Proxy String ---")
         response = self._call_tool("browse", {
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "proxy": "http://127.0.0.1:8080"
         }, timeout=10)
         assert response and response.get("result", {}).get("isError"), f"Private proxy string was not rejected: {response}"
@@ -326,7 +506,7 @@ class MCPTestClient:
     def test_call_tool_browse_rejects_private_proxy_object(self):
         print("--- Running Test: Call Tool - Reject Private Proxy Object ---")
         response = self._call_tool("browse", {
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "proxy": {"server": "http://169.254.169.254:80"}
         }, timeout=10)
         assert response and response.get("result", {}).get("isError"), f"Private proxy object was not rejected: {response}"
@@ -335,16 +515,38 @@ class MCPTestClient:
 
     def test_call_tool_browse_rejects_ipv6_loopback(self):
         print("--- Running Test: Call Tool - Reject IPv6 Loopback URL ---")
-        response = self._call_tool("browse", {"url": "http://[::1]/"}, timeout=10)
-        assert response and response.get("result", {}).get("isError"), f"IPv6 loopback URL was not rejected: {response}"
-        assert "not allowed" in self.get_tool_text(response).lower()
+        strict_client = MCPTestClient(
+            mode=self.mode,
+            image_name=self.image_name,
+            docker_platform=self.docker_platform,
+            env={}
+        )
+        try:
+            strict_client.start_server()
+            strict_client.test_handshake()
+            response = strict_client._call_tool("browse", {"url": "http://[::1]/"}, timeout=10)
+            assert response and response.get("result", {}).get("isError"), f"IPv6 loopback URL was not rejected: {response}"
+            assert "not allowed" in strict_client.get_tool_text(response).lower()
+        finally:
+            strict_client.stop_server()
         print("CallTool IPv6 loopback rejection test passed.")
 
     def test_call_tool_browse_rejects_ipv4_mapped_loopback(self):
         print("--- Running Test: Call Tool - Reject IPv4-Mapped Loopback URL ---")
-        response = self._call_tool("browse", {"url": "http://[::ffff:127.0.0.1]/"}, timeout=10)
-        assert response and response.get("result", {}).get("isError"), f"IPv4-mapped loopback URL was not rejected: {response}"
-        assert "not allowed" in self.get_tool_text(response).lower()
+        strict_client = MCPTestClient(
+            mode=self.mode,
+            image_name=self.image_name,
+            docker_platform=self.docker_platform,
+            env={}
+        )
+        try:
+            strict_client.start_server()
+            strict_client.test_handshake()
+            response = strict_client._call_tool("browse", {"url": "http://[::ffff:127.0.0.1]/"}, timeout=10)
+            assert response and response.get("result", {}).get("isError"), f"IPv4-mapped loopback URL was not rejected: {response}"
+            assert "not allowed" in strict_client.get_tool_text(response).lower()
+        finally:
+            strict_client.stop_server()
         print("CallTool IPv4-mapped loopback rejection test passed.")
 
     def test_call_tool_browse_rejects_unusual_private_ip_forms(self):
@@ -363,10 +565,21 @@ class MCPTestClient:
             "http://[2001:db8::1]/",
             "http://[2002::1]/"
         ]
-        for url in urls:
-            response = self._call_tool("browse", {"url": url}, timeout=10)
-            assert response and response.get("result", {}).get("isError"), f"Unusual private URL was not rejected: {url}: {response}"
-            assert "not allowed" in self.get_tool_text(response).lower()
+        strict_client = MCPTestClient(
+            mode=self.mode,
+            image_name=self.image_name,
+            docker_platform=self.docker_platform,
+            env={}
+        )
+        try:
+            strict_client.start_server()
+            strict_client.test_handshake()
+            for url in urls:
+                response = strict_client._call_tool("browse", {"url": url}, timeout=10)
+                assert response and response.get("result", {}).get("isError"), f"Unusual private URL was not rejected: {url}: {response}"
+                assert "not allowed" in strict_client.get_tool_text(response).lower()
+        finally:
+            strict_client.stop_server()
         print("CallTool unusual private IP form rejection test passed.")
 
     def test_call_tool_browse_rejects_special_ipv4_ranges(self):
@@ -377,7 +590,9 @@ class MCPTestClient:
             "192.168.0.1",
             "169.254.169.254",
             "100.64.0.1",
+            "192.0.0.1",
             "192.0.2.1",
+            "192.88.99.1",
             "198.51.100.1",
             "203.0.113.1",
             "224.0.0.1"
@@ -390,7 +605,7 @@ class MCPTestClient:
 
     def test_call_tool_browse_success(self):
         print("--- Running Test: Call Tool - Browse Success (No Window Param) ---")
-        response = self._run_browse({"url": "https://www.example.com"})
+        response = self._run_browse({"url": self._example_url()})
         payload = self.get_tool_payload(response)
         assert payload["outputMode"] == "text"
         assert payload["status"] == 200
@@ -400,7 +615,7 @@ class MCPTestClient:
     def test_call_tool_browse_metadata(self):
         print("--- Running Test: Call Tool - Browse Metadata Output ---")
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "outputMode": "metadata"
         })
         payload = self.get_tool_payload(response)
@@ -413,7 +628,7 @@ class MCPTestClient:
     def test_call_tool_browse_selector_text(self):
         print("--- Running Test: Call Tool - Browse Selector Text ---")
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "selector": "h1",
             "maxChars": 1000
         })
@@ -427,14 +642,14 @@ class MCPTestClient:
     def test_call_tool_browse_network_diagnostics(self):
         print("--- Running Test: Call Tool - Browse Network Diagnostics ---")
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "outputMode": "metadata",
             "includeNetwork": True
         })
         payload = self.get_tool_payload(response)
         diagnostics = payload.get("diagnostics", {})
         assert diagnostics.get("network"), f"Expected network diagnostics: {payload}"
-        assert diagnostics["network"][0]["url"].startswith("https://")
+        assert diagnostics["network"][0]["url"].startswith("http://")
         print("CallTool network diagnostics test passed.")
 
     def test_call_tool_browse_selector_jpeg_screenshot(self):
@@ -547,7 +762,7 @@ class MCPTestClient:
         assert any("diagnostic fixture message" in entry["text"] for entry in console_payload["console"]), console_payload
 
         network_payload = self.get_tool_payload(self._run_network_summary({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "maxFailures": 5
         }, timeout=90))
         assert network_payload["requests"] >= 1, f"Expected network requests: {network_payload}"
@@ -603,7 +818,7 @@ class MCPTestClient:
     def test_call_tool_browse_missing_selector(self):
         print("--- Running Test: Call Tool - Browse Missing Selector ---")
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "selector": ".does-not-exist",
             "maxChars": 1000
         })
@@ -616,7 +831,7 @@ class MCPTestClient:
     def test_call_tool_snapshot_success(self):
         print("--- Running Test: Call Tool - Browse Snapshot Success ---")
         response = self._run_snapshot({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "maxChars": 2000,
             "maxElements": 20
         })
@@ -774,17 +989,93 @@ class MCPTestClient:
             assert self.get_tool_payload(close_response)["closed"] is True
         print("CallTool session flow and max sessions test passed.")
 
-    def test_call_tool_session_captcha_detection(self):
-        print("--- Running Test: Call Tool - Session CAPTCHA Detection ---")
+    def test_call_tool_session_serializes_overlapping_operations(self):
+        print("--- Running Test: Call Tool - Session Serializes Overlapping Operations ---")
         start_response = self._run_tool("browse_session_start", {}, timeout=90)
         session_id = self.get_tool_payload(start_response)["sessionId"]
         try:
             html = """<!doctype html>
 <html>
+<body>
+  <p>waiting</p>
+  <script>
+    setTimeout(() => {
+      const ready = document.createElement('p');
+      ready.id = 'ready';
+      ready.textContent = 'ready from queued action';
+      document.body.appendChild(ready);
+    }, 1200);
+  </script>
+</body>
+</html>"""
+            navigate = self._run_tool("browse_session_navigate", {
+                "sessionId": session_id,
+                "url": self._fixture_url(html),
+                "maxChars": 1000
+            }, timeout=90)
+            assert "waiting" in self.get_tool_payload(navigate)["text"]
+
+            action_id = self.send_request("tools/call", {
+                "name": "browse_session_action",
+                "arguments": {
+                    "sessionId": session_id,
+                    "action": {"type": "waitFor", "selector": "#ready", "timeout": 5000},
+                    "maxChars": 1000,
+                    "maxElements": 20
+                }
+            })
+            snapshot_id = self.send_request("tools/call", {
+                "name": "browse_session_snapshot",
+                "arguments": {
+                    "sessionId": session_id,
+                    "maxChars": 1000,
+                    "maxElements": 20
+                }
+            })
+            action_response = self.get_response(action_id, timeout=90)
+            snapshot_response = self.get_response(snapshot_id, timeout=90)
+            assert action_response and not action_response.get("result", {}).get("isError"), action_response
+            assert snapshot_response and not snapshot_response.get("result", {}).get("isError"), snapshot_response
+            snapshot_payload = self.get_tool_payload(snapshot_response)
+            assert "ready from queued action" in snapshot_payload["text"], snapshot_payload
+        finally:
+            close_response = self._call_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+            assert close_response, close_response
+        print("CallTool session operation serialization test passed.")
+
+    def test_call_tool_session_navigation_error_redacts_url(self):
+        print("--- Running Test: Call Tool - Session Navigation Error Redacts URL ---")
+        start_response = self._run_tool("browse_session_start", {}, timeout=90)
+        session_id = self.get_tool_payload(start_response)["sessionId"]
+        try:
+            secret_url = self._url("/slow?seconds=6&token=session-secret")
+            response = self._call_tool("browse_session_navigate", {
+                "sessionId": session_id,
+                "url": secret_url,
+                "timeout": 5000,
+                "maxChars": 1000
+            }, timeout=15)
+            assert response and response.get("result", {}).get("isError"), response
+            error_text = self.get_tool_text(response)
+            assert "session-secret" not in error_text, error_text
+            assert "token=" not in error_text, error_text
+        finally:
+            close_response = self._call_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+            assert close_response, close_response
+        print("CallTool session navigation error redaction test passed.")
+
+    def test_call_tool_session_captcha_detection(self):
+        print("--- Running Test: Call Tool - Session CAPTCHA Detection ---")
+        start_response = self._run_tool("browse_session_start", {}, timeout=90)
+        session_id = self.get_tool_payload(start_response)["sessionId"]
+        try:
+            captcha_src = self._url("/recaptcha/api2/anchor")
+            html = f"""<!doctype html>
+<html>
 <head><title>Just a moment</title></head>
 <body>
   <h1>Verify you are human</h1>
-  <iframe title="recaptcha challenge" src="https://www.google.com/recaptcha/api2/anchor"></iframe>
+  <iframe title="recaptcha challenge" src="{captcha_src}"></iframe>
 </body>
 </html>"""
             response = self._run_tool("browse_session_navigate", {
@@ -807,12 +1098,13 @@ class MCPTestClient:
         start_response = self._run_tool("browse_session_start", {}, timeout=90)
         session_id = self.get_tool_payload(start_response)["sessionId"]
         try:
-            html = """<!doctype html>
+            captcha_src = self._url("/recaptcha/api2/anchor?k=site-secret&token=super-secret#fragment")
+            html = f"""<!doctype html>
 <html>
 <head><title>Just a moment</title></head>
 <body>
   <h1>Verify you are human</h1>
-  <iframe title="recaptcha challenge" src="https://www.google.com/recaptcha/api2/anchor"></iframe>
+  <iframe title="recaptcha challenge" src="{captcha_src}"></iframe>
 </body>
 </html>"""
             response = self._run_tool("browse_session_navigate", {
@@ -826,6 +1118,12 @@ class MCPTestClient:
             assert payload["requiresUserAction"] is True, payload
             assert payload["challengeProvider"] == "recaptcha", payload
             assert payload["captchaIframes"], payload
+            iframe_src = payload["captchaIframes"][0]["src"]
+            assert len(iframe_src) <= 500, payload
+            assert "site-secret" not in iframe_src, payload
+            assert "super-secret" not in iframe_src, payload
+            assert "fragment" not in iframe_src, payload
+            assert "?..." in iframe_src, payload
             assert payload["suggestedStrategy"], payload
             assert "autoSolve" not in payload, payload
             content = response.get("result", {}).get("content", [])
@@ -843,10 +1141,10 @@ class MCPTestClient:
             mode=self.mode,
             image_name=self.image_name,
             docker_platform=self.docker_platform,
-            env={
+            env=self._test_env({
                 "CAMOUFOX_MCP_MAX_CONCURRENCY": "2",
                 "CAMOUFOX_MCP_MAX_SESSIONS": "1"
-            }
+            })
         )
         sessions = []
         try:
@@ -946,7 +1244,7 @@ class MCPTestClient:
     def test_call_tool_sequence_rejects_private_redirect(self):
         print("--- Running Test: Call Tool - Browse Sequence Reject Private Redirect ---")
         response = self._call_tool("browse_sequence", {
-            "url": "https://httpbin.org/redirect-to?url=http%3A%2F%2F127.0.0.1%3A80",
+            "url": self._url("/redirect-to?url=http%3A%2F%2F127.0.0.1%3A80"),
             "actions": []
         }, timeout=30)
         assert response and response.get("result", {}).get("isError"), f"Private sequence redirect was not rejected: {response}"
@@ -956,7 +1254,7 @@ class MCPTestClient:
     def test_call_tool_sequence_rejects_evaluate_by_default(self):
         print("--- Running Test: Call Tool - Browse Sequence Reject Evaluate By Default ---")
         response = self._call_tool("browse_sequence", {
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "actions": [
                 {"type": "evaluate", "expression": "document.title"}
             ]
@@ -1074,13 +1372,13 @@ class MCPTestClient:
             mode=self.mode,
             image_name=self.image_name,
             docker_platform=self.docker_platform,
-            env={"CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1"}
+            env=self._test_env({"CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1"})
         )
         try:
             unsafe_client.start_server()
             unsafe_client.test_handshake()
             response = unsafe_client._call_tool("browse", {
-                "url": "https://www.example.com",
+                "url": unsafe_client._example_url(),
                 "args": ["--remote-debugging-port", "0"]
             }, timeout=10)
             assert response and response.get("result", {}).get("isError"), f"Denylisted unsafe option was not rejected: {response}"
@@ -1092,7 +1390,7 @@ class MCPTestClient:
     def test_call_tool_browse_empty_window(self):
         print("--- Running Test: Call Tool - Browse Empty Window [] ---")
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "window": []
         })
         payload = self.get_tool_payload(response)
@@ -1102,7 +1400,7 @@ class MCPTestClient:
     def test_call_tool_browse_valid_window(self):
         print("--- Running Test: Call Tool - Browse Valid Window [800, 600] ---")
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "window": [800, 600]
         })
         payload = self.get_tool_payload(response)
@@ -1112,7 +1410,7 @@ class MCPTestClient:
     def test_call_tool_browse_comprehensive_empty_args(self):
         print("--- Running Test: Call Tool - Browse Comprehensive Empty/Default Args ---")
         response = self._run_browse({
-            "url": "https://www.example.com",
+            "url": self._example_url(),
             "viewport": {},
             "firefox_user_prefs": {},
             "exclude_addons": [],
@@ -1156,6 +1454,8 @@ class MCPTestClient:
             self.test_call_tool_sequence_click_link()
             self.test_call_tool_sequence_form_actions()
             self.test_call_tool_session_flow_and_max_sessions()
+            self.test_call_tool_session_serializes_overlapping_operations()
+            self.test_call_tool_session_navigation_error_redacts_url()
             self.test_call_tool_session_captcha_detection()
             self.test_call_tool_session_captcha_attempt()
             self.test_call_tool_session_start_enforces_concurrent_max_sessions()
@@ -1188,6 +1488,6 @@ if __name__ == "__main__":
     parser.add_argument('--docker-platform', type=str, help='Docker platform to pass to docker run')
     args = parser.parse_args()
 
-    client = MCPTestClient(mode=args.mode, image_name=args.image_name, docker_platform=args.docker_platform)
+    client = MCPTestClient(mode=args.mode, image_name=args.image_name, docker_platform=args.docker_platform, env=TEST_ENV)
     ok = client.run_tests()
     raise SystemExit(0 if ok else 1)

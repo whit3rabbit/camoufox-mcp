@@ -31,6 +31,31 @@ export function isBlockedHostname(hostname: string): boolean {
   );
 }
 
+function isTestLocalhostAllowed(): boolean {
+  return process.env.NODE_ENV === "test" && process.env.CAMOUFOX_MCP_TEST_ALLOW_LOCALHOST === "1";
+}
+
+function isAllowedTestLocalhostPort(port: string): boolean {
+  if (!isTestLocalhostAllowed() || !port) {
+    return false;
+  }
+
+  const allowedPorts = (process.env.CAMOUFOX_MCP_TEST_ALLOWED_LOCALHOST_PORTS ?? "")
+    .split(",")
+    .map((allowedPort) => allowedPort.trim())
+    .filter(Boolean);
+
+  return allowedPorts.includes(port);
+}
+
+function isAllowedTestLocalhost(hostname: string, port: string): boolean {
+  return isAllowedTestLocalhostPort(port) && (
+    hostname === "localhost"
+    || hostname.endsWith(".localhost")
+    || hostname === "host.docker.internal"
+  );
+}
+
 export function isBlockedIpv4(address: string): boolean {
   const parts = address.split(".").map((part) => Number.parseInt(part, 10));
   if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) {
@@ -45,11 +70,33 @@ export function isBlockedIpv4(address: string): boolean {
     || (first === 100 && second >= 64 && second <= 127)
     || (first === 169 && second === 254)
     || (first === 172 && second >= 16 && second <= 31)
-    || (first === 192 && second === 0 && (third === 0 || third === 2))
+    || (first === 192 && second === 0)
+    || (first === 192 && second === 88 && third === 99)
     || (first === 192 && second === 168)
     || (first === 198 && second === 51 && third === 100)
     || (first === 198 && (second === 18 || second === 19))
     || (first === 203 && second === 0 && third === 113);
+}
+
+function isAllowedTestLoopbackIp(address: string, port: string): boolean {
+  if (!isAllowedTestLocalhostPort(port)) {
+    return false;
+  }
+
+  const normalized = normalizeHostname(address);
+  const mappedIpv4 = ipv4FromMappedIpv6(normalized);
+  if (mappedIpv4) {
+    return isAllowedTestLoopbackIp(mappedIpv4, port);
+  }
+
+  if (normalized === "::1") {
+    return true;
+  }
+
+  const parts = normalized.split(".").map((part) => Number.parseInt(part, 10));
+  return parts.length === 4
+    && parts.every((part) => Number.isFinite(part) && part >= 0 && part <= 255)
+    && parts[0] === 127;
 }
 
 export function ipv4FromMappedIpv6(address: string): string | undefined {
@@ -229,11 +276,27 @@ export function parseAndValidateTargetUrl(rawUrl: string): ParsedTargetUrl {
     throw new Error("URL host is required.");
   }
 
+  if (isAllowedTestLocalhost(hostname, parsed.port)) {
+    return {
+      parsed,
+      hostname,
+      needsDnsCheck: false,
+    };
+  }
+
   if (isBlockedHostname(hostname)) {
     throw new Error("Local hostnames are not allowed.");
   }
 
   if (isIP(hostname)) {
+    if (isAllowedTestLoopbackIp(hostname, parsed.port)) {
+      return {
+        parsed,
+        hostname,
+        needsDnsCheck: false,
+      };
+    }
+
     if (isBlockedIp(hostname)) {
       throw new Error("Private, local, or reserved IP addresses are not allowed.");
     }

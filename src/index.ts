@@ -328,6 +328,9 @@ interface SessionRecord {
   expiresAt: number;
   timer: ReturnType<typeof setTimeout>;
   lastNavigationResponse: Response | null;
+  op: Promise<void>;
+  closing: boolean;
+  closed: boolean;
 }
 
 interface CamoufoxOptions {
@@ -544,6 +547,185 @@ const captchaPolicySchema = z.enum(["detect", "pause", "fail", "attempt"]).optio
   .describe("Challenge handling policy. 'detect' reports signals, 'pause' returns state for human action, 'fail' returns an error, 'attempt' returns enhanced challenge metadata and a bounded screenshot without solving or bypassing.");
 const anyOutputSchema = z.object({}).passthrough();
 
+const consoleDiagnosticOutputSchema = z.object({
+  type: z.string(),
+  text: z.string(),
+  location: z.object({
+    url: z.string().optional(),
+    lineNumber: z.number().optional(),
+    columnNumber: z.number().optional(),
+  }).optional(),
+});
+
+const networkDiagnosticOutputSchema = z.object({
+  url: z.string(),
+  method: z.string(),
+  resourceType: z.string(),
+  status: z.number().optional(),
+  contentType: z.string().optional(),
+  failed: z.boolean().optional(),
+  errorText: z.string().optional(),
+});
+
+const diagnosticsOutputSchema = z.object({
+  console: z.array(consoleDiagnosticOutputSchema).optional(),
+  network: z.array(networkDiagnosticOutputSchema).optional(),
+  consoleTruncated: z.boolean().optional(),
+  networkTruncated: z.boolean().optional(),
+}).optional();
+
+const captchaIframeOutputSchema = z.object({
+  selector: z.string(),
+  src: z.string(),
+  title: z.string().optional(),
+});
+
+const captchaElementOutputSchema = z.object({
+  selector: z.string(),
+  frame: z.string().optional(),
+  type: z.enum(["checkbox", "input", "button", "image"]),
+  label: z.string().optional(),
+});
+
+const captchaDetectionOutputShape = {
+  captchaDetected: z.boolean().optional(),
+  challengeSignals: z.array(z.string()).optional(),
+  requiresUserAction: z.boolean().optional(),
+  challengeType: z.literal("captcha_or_bot_check").optional(),
+  message: z.string().optional(),
+  challengeProvider: z.enum(["recaptcha", "hcaptcha", "turnstile", "cloudflare", "text_captcha", "generic"]).optional(),
+  captchaIframes: z.array(captchaIframeOutputSchema).optional(),
+  interactiveElements: z.array(captchaElementOutputSchema).optional(),
+  suggestedStrategy: z.string().optional(),
+};
+
+const statusOutputSchema = z.object({
+  version: z.string(),
+  browser: z.literal("camoufox"),
+  browserAvailable: z.boolean(),
+  browserPath: z.string().optional(),
+  headlessMode: z.union([z.boolean(), z.literal("virtual")]),
+  platform: z.string(),
+  activeBrowsers: z.number(),
+  activeSessions: z.number(),
+  queuedRequests: z.number(),
+  maxConcurrency: z.number(),
+  maxQueue: z.number(),
+  maxSessions: z.number(),
+  sessionTtlMs: z.number(),
+  unsafeOptionsAllowed: z.boolean(),
+  evaluateAllowed: z.boolean(),
+});
+
+const linksOutputSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  status: z.number().optional(),
+  contentType: z.string().optional(),
+  selector: z.string().optional(),
+  selectorFound: z.boolean(),
+  links: z.array(z.object({
+    text: z.string(),
+    href: z.string(),
+    selector: z.string(),
+    visible: z.boolean(),
+    confidence: z.number(),
+  })),
+  truncated: z.boolean(),
+  maxLinks: z.number(),
+  diagnostics: diagnosticsOutputSchema,
+  ...captchaDetectionOutputShape,
+});
+
+const formsOutputSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  status: z.number().optional(),
+  contentType: z.string().optional(),
+  selector: z.string().optional(),
+  selectorFound: z.boolean(),
+  forms: z.array(z.object({
+    selector: z.string(),
+    fields: z.array(z.object({
+      label: z.string().optional(),
+      type: z.string(),
+      name: z.string().optional(),
+      selector: z.string(),
+      required: z.boolean(),
+      placeholder: z.string().optional(),
+      value: z.string().optional(),
+      options: z.array(z.object({
+        text: z.string(),
+        value: z.string(),
+      })).optional(),
+    })),
+    submit: z.object({
+      text: z.string().optional(),
+      selector: z.string(),
+    }).optional(),
+  })),
+  truncated: z.boolean(),
+  maxForms: z.number(),
+  maxFields: z.number(),
+  diagnostics: diagnosticsOutputSchema,
+  ...captchaDetectionOutputShape,
+});
+
+const outlineOutputSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  status: z.number().optional(),
+  contentType: z.string().optional(),
+  description: z.string().optional(),
+  selector: z.string().optional(),
+  selectorFound: z.boolean(),
+  headings: z.array(z.object({
+    level: z.number(),
+    text: z.string(),
+    selector: z.string(),
+  })),
+  landmarks: z.array(z.string()),
+  truncated: z.boolean(),
+  maxItems: z.number(),
+  diagnostics: diagnosticsOutputSchema,
+  ...captchaDetectionOutputShape,
+});
+
+const findOutputSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  status: z.number().optional(),
+  contentType: z.string().optional(),
+  query: z.string(),
+  selector: z.string().optional(),
+  selectorFound: z.boolean(),
+  matches: z.array(z.object({
+    text: z.string(),
+    selector: z.string(),
+    score: z.number(),
+  })),
+  truncated: z.boolean(),
+  maxMatches: z.number(),
+  contextChars: z.number(),
+  diagnostics: diagnosticsOutputSchema,
+  ...captchaDetectionOutputShape,
+});
+
+const networkSummaryOutputSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  status: z.number().optional(),
+  contentType: z.string().optional(),
+  requests: z.number(),
+  failed: z.number(),
+  blocked: z.number(),
+  statusCounts: z.record(z.string(), z.number()),
+  resourceTypeCounts: z.record(z.string(), z.number()),
+  topFailures: z.array(networkDiagnosticOutputSchema),
+  truncated: z.boolean(),
+  ...captchaDetectionOutputShape,
+});
+
 const commonBrowserOptionShape = {
   os: z.enum(["windows", "macos", "linux"]).optional().describe("Optional OS to spoof. Can be 'windows', 'macos', or 'linux'. If not specified, will rotate between all OS types."),
   waitStrategy: z.enum(["domcontentloaded", "load", "networkidle"]).optional().default("load").describe("Wait strategy for page load. 'domcontentloaded' waits for DOM, 'load' waits for all resources, 'networkidle' waits for network activity to finish."),
@@ -600,6 +782,8 @@ const sequenceActionSchema = z.discriminatedUnion("type", [
     type: z.literal("click"),
     selector: z.string().max(2000),
     frame: frameSchema,
+    clickMode: z.enum(["dom", "pointer"]).optional().default("dom")
+      .describe("Click implementation. 'dom' uses DOM activation for CI stability. 'pointer' uses Playwright pointer input."),
     timeout: actionTimeoutSchema,
   }),
   z.object({
@@ -2537,7 +2721,11 @@ async function detectChallenge(page: Page, response?: Response | null, attemptMo
     const selector = classified?.selector ?? `iframe:nth-of-type(${nth + 1})`;
     if (classified) provider = classified.provider;
 
-    captchaIframes.push({ selector, src, title: title || undefined });
+    captchaIframes.push({
+      selector,
+      src: truncateString(redactUrl(src), 500).value,
+      title: title ? truncateString(title, 200).value : undefined,
+    });
 
     // Best-effort metadata for caller-guided challenge completion.
     try {
@@ -2797,7 +2985,7 @@ async function captureScreenshot(page: Page, safeUrl: string, options?: Screensh
 function buildSuccessContent(payload: unknown, screenshotResult?: ScreenshotResult): { content: ToolContent[]; structuredContent: Record<string, unknown> } {
   const content: ToolContent[] = [{
     type: "text",
-    text: JSON.stringify(payload, null, 2),
+    text: JSON.stringify(payload),
   }];
 
   if (screenshotResult?.base64) {
@@ -2939,16 +3127,25 @@ function actionTimeout(action: { timeout?: number }): number {
   return action.timeout ?? DEFAULT_ACTION_TIMEOUT_MS;
 }
 
+function isLocalOperationTimeout(error: unknown): boolean {
+  return describeError(error).endsWith(" timed out.");
+}
+
 function resolveLocator(page: Page, selector: string, frame?: string): Locator {
   if (frame) return page.frameLocator(frame).locator(selector).first();
   return page.locator(selector).first();
 }
 
-async function activateElement(page: Page, selector: string, timeout: number, frame?: string): Promise<void> {
+async function activateElement(page: Page, selector: string, timeout: number, frame?: string, clickMode: "dom" | "pointer" = "dom"): Promise<void> {
   const locator = resolveLocator(page, selector, frame);
   await locator.waitFor({ state: "visible", timeout });
   if (!await locator.isEnabled({ timeout })) {
     throw new Error(`Click selector is disabled: ${selector}`);
+  }
+
+  if (clickMode === "pointer") {
+    await locator.click({ timeout });
+    return;
   }
 
   // Camoufox's virtual display can hang during low-level mouse clicks in CI.
@@ -2985,7 +3182,7 @@ async function runSequenceAction(
 
   switch (action.type) {
     case "click":
-      await activateElement(page, action.selector, timeout, action.frame);
+      await activateElement(page, action.selector, timeout, action.frame, action.clickMode);
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "hover":
@@ -3647,15 +3844,16 @@ function releaseSessionSlot(): void {
   reservedSessions = Math.max(0, reservedSessions - 1);
 }
 
-async function closeSession(sessionId: string, reason: string): Promise<boolean> {
-  const session = sessions.get(sessionId);
-  if (!session) {
+async function closeSessionNow(session: SessionRecord, reason: string): Promise<boolean> {
+  if (session.closed) {
     return false;
   }
 
-  sessions.delete(sessionId);
+  session.closing = true;
+  session.closed = true;
+  sessions.delete(session.id);
   clearTimeout(session.timer);
-  console.error(chalk.blue(`[Camoufox] Closing session ${sessionId} (${reason}).`));
+  console.error(chalk.blue(`[Camoufox] Closing session ${session.id} (${reason}).`));
   try {
     await closeBrowser(session.browser);
   } finally {
@@ -3663,6 +3861,19 @@ async function closeSession(sessionId: string, reason: string): Promise<boolean>
     releaseSessionSlot();
   }
   return true;
+}
+
+async function closeSession(sessionId: string, reason: string): Promise<boolean> {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return false;
+  }
+
+  session.closing = true;
+  sessions.delete(sessionId);
+  clearTimeout(session.timer);
+  await session.op.catch(() => undefined);
+  return closeSessionNow(session, reason);
 }
 
 async function closeActiveSessions(): Promise<void> {
@@ -3683,6 +3894,29 @@ async function getSession(sessionId: string): Promise<SessionRecord> {
 
   resetSessionTtl(session);
   return session;
+}
+
+async function runSessionExclusive<T>(
+  session: SessionRecord,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const run = session.op.catch(() => undefined).then(async () => {
+    if (session.closing || session.closed) {
+      throw new Error(`Session is closing or closed: ${session.id}`);
+    }
+
+    try {
+      return await operation();
+    } catch (error) {
+      if (isLocalOperationTimeout(error)) {
+        await closeSessionNow(session, "operation-timeout");
+      }
+      throw error;
+    }
+  });
+
+  session.op = run.then(() => undefined, () => undefined);
+  return run;
 }
 
 async function navigateSession(
@@ -3762,6 +3996,9 @@ async function handleSessionStart(input: SessionStartToolInput) {
         void closeSession(id, "expired");
       }, SESSION_TTL_MS),
       lastNavigationResponse: null,
+      op: Promise.resolve(),
+      closing: false,
+      closed: false,
     };
 
     sessions.set(id, session);
@@ -3794,90 +4031,123 @@ async function handleSessionStart(input: SessionStartToolInput) {
   }
 }
 
-async function handleSessionNavigate(input: SessionNavigateToolInput) {
-  try {
-    const session = await getSession(input.sessionId);
-    const response = await navigateSession(session, input.url, input.waitStrategy, input.timeout);
-    const mode = input.outputMode ?? "text";
-    const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
-    const payload = await runGuardedPageRead(
+function sessionSanitizedError(error: unknown, session?: SessionRecord, extraRawUrls: string[] = []): string {
+  const rawUrls = session ? [...session.rawUrls, ...extraRawUrls] : extraRawUrls;
+  const secrets = session?.secrets ?? [];
+  return sanitizeErrorMessage(describeError(error), rawUrls, secrets);
+}
+
+async function buildSessionSnapshotResult(
+  session: SessionRecord,
+  input: SessionSnapshotToolInput,
+) {
+  const snapshot = await runGuardedPageRead(
+    session.page,
+    session.requestGuard,
+    () => buildSnapshotPayload(
       session.page,
-      session.requestGuard,
-      () => buildBrowsePayload(session.page, response, mode, charLimit, input.selector),
+      session.lastNavigationResponse,
+      input.maxChars ?? DEFAULT_MAX_CHARS,
+      input.maxElements ?? DEFAULT_MAX_ELEMENTS,
+      input.selector,
+    ),
+  );
+  const basePayload = { sessionId: session.id, expiresAt: sessionExpiresAt(session), ...snapshot };
+  if (input.captchaPolicy) {
+    const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(
+      session.page,
+      session.lastNavigationResponse,
+      basePayload,
+      input.captchaPolicy,
+      redactUrl(session.page.url()),
     );
-    const basePayload = { sessionId: session.id, expiresAt: sessionExpiresAt(session), ...payload };
-    if (input.captchaPolicy) {
-      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(session.page, response, basePayload, input.captchaPolicy, redactUrl(input.url));
-      return buildSuccessContent(mergedPayload, captchaScreenshot);
-    }
-    return buildSuccessContent(basePayload);
+    return buildSuccessContent(mergedPayload, captchaScreenshot);
+  }
+  return buildSuccessContent(basePayload);
+}
+
+async function handleSessionNavigate(input: SessionNavigateToolInput) {
+  let session: SessionRecord | undefined;
+  try {
+    const currentSession = await getSession(input.sessionId);
+    session = currentSession;
+    return await runSessionExclusive(currentSession, async () => {
+      const response = await navigateSession(currentSession, input.url, input.waitStrategy, input.timeout);
+      const mode = input.outputMode ?? "text";
+      const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
+      const payload = await runGuardedPageRead(
+        currentSession.page,
+        currentSession.requestGuard,
+        () => buildBrowsePayload(currentSession.page, response, mode, charLimit, input.selector),
+      );
+      const basePayload = { sessionId: currentSession.id, expiresAt: sessionExpiresAt(currentSession), ...payload };
+      if (input.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(currentSession.page, response, basePayload, input.captchaPolicy, redactUrl(input.url));
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(basePayload);
+    });
   } catch (error) {
-    return buildToolError(`Failed to navigate session. Error: ${sanitizeErrorMessage(describeError(error), [input.url], [])}`);
+    return buildToolError(`Failed to navigate session. Error: ${sessionSanitizedError(error, session, [input.url])}`);
   }
 }
 
 async function handleSessionAction(input: SessionActionToolInput) {
+  let session: SessionRecord | undefined;
   try {
-    const session = await getSession(input.sessionId);
-    const actionResult = await runSequenceAction(session.page, input.action, 0, session.rawUrls, session.secrets);
-    await settleAndAssertSafe(session.page, session.requestGuard);
-    const snapshot = await runGuardedPageRead(
-      session.page,
-      session.requestGuard,
-      () => buildSnapshotPayload(
-        session.page,
-        session.lastNavigationResponse,
-        input.maxChars ?? DEFAULT_MAX_CHARS,
-        input.maxElements ?? DEFAULT_MAX_ELEMENTS,
-        input.selector,
-      ),
-    );
-    const basePayload = { sessionId: session.id, expiresAt: sessionExpiresAt(session), action: actionResult, snapshot };
-    if (input.captchaPolicy) {
-      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(session.page, session.lastNavigationResponse, basePayload, input.captchaPolicy, redactUrl(session.page.url()));
-      return buildSuccessContent(mergedPayload, captchaScreenshot);
-    }
-    return buildSuccessContent(basePayload);
+    const currentSession = await getSession(input.sessionId);
+    session = currentSession;
+    return await runSessionExclusive(currentSession, async () => {
+      const actionResult = await runSequenceAction(currentSession.page, input.action, 0, currentSession.rawUrls, currentSession.secrets);
+      await settleAndAssertSafe(currentSession.page, currentSession.requestGuard);
+      const snapshot = await runGuardedPageRead(
+        currentSession.page,
+        currentSession.requestGuard,
+        () => buildSnapshotPayload(
+          currentSession.page,
+          currentSession.lastNavigationResponse,
+          input.maxChars ?? DEFAULT_MAX_CHARS,
+          input.maxElements ?? DEFAULT_MAX_ELEMENTS,
+          input.selector,
+        ),
+      );
+      const basePayload = { sessionId: currentSession.id, expiresAt: sessionExpiresAt(currentSession), action: actionResult, snapshot };
+      if (input.captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(currentSession.page, currentSession.lastNavigationResponse, basePayload, input.captchaPolicy, redactUrl(currentSession.page.url()));
+        return buildSuccessContent(mergedPayload, captchaScreenshot);
+      }
+      return buildSuccessContent(basePayload);
+    });
   } catch (error) {
-    return buildToolError(`Failed to run session action. Error: ${sanitizeErrorMessage(describeError(error), [], [])}`);
+    return buildToolError(`Failed to run session action. Error: ${sessionSanitizedError(error, session)}`);
   }
 }
 
 async function handleSessionSnapshot(input: SessionSnapshotToolInput) {
+  let session: SessionRecord | undefined;
   try {
-    const session = await getSession(input.sessionId);
-    const snapshot = await runGuardedPageRead(
-      session.page,
-      session.requestGuard,
-      () => buildSnapshotPayload(
-        session.page,
-        session.lastNavigationResponse,
-        input.maxChars ?? DEFAULT_MAX_CHARS,
-        input.maxElements ?? DEFAULT_MAX_ELEMENTS,
-        input.selector,
-      ),
-    );
-    const basePayload = { sessionId: session.id, expiresAt: sessionExpiresAt(session), ...snapshot };
-    if (input.captchaPolicy) {
-      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(session.page, session.lastNavigationResponse, basePayload, input.captchaPolicy, redactUrl(session.page.url()));
-      return buildSuccessContent(mergedPayload, captchaScreenshot);
-    }
-    return buildSuccessContent(basePayload);
+    const currentSession = await getSession(input.sessionId);
+    session = currentSession;
+    return await runSessionExclusive(currentSession, async () => buildSessionSnapshotResult(currentSession, input));
   } catch (error) {
-    return buildToolError(`Failed to snapshot session. Error: ${sanitizeErrorMessage(describeError(error), [], [])}`);
+    return buildToolError(`Failed to snapshot session. Error: ${sessionSanitizedError(error, session)}`);
   }
 }
 
 async function handleSessionResume(input: SessionResumeToolInput) {
+  let session: SessionRecord | undefined;
   try {
-    const session = await getSession(input.sessionId);
-    if (input.waitStrategy) {
-      await session.page.waitForLoadState(input.waitStrategy, { timeout: input.timeout ?? DEFAULT_ACTION_TIMEOUT_MS });
-      await settleAndAssertSafe(session.page, session.requestGuard);
-    }
-    return await handleSessionSnapshot(input);
+    const currentSession = await getSession(input.sessionId);
+    session = currentSession;
+    return await runSessionExclusive(currentSession, async () => {
+      if (input.waitStrategy) {
+        await currentSession.page.waitForLoadState(input.waitStrategy, { timeout: input.timeout ?? DEFAULT_ACTION_TIMEOUT_MS });
+        await settleAndAssertSafe(currentSession.page, currentSession.requestGuard);
+      }
+      return buildSessionSnapshotResult(currentSession, input);
+    });
   } catch (error) {
-    return buildToolError(`Failed to resume session. Error: ${sanitizeErrorMessage(describeError(error), [], [])}`);
+    return buildToolError(`Failed to resume session. Error: ${sessionSanitizedError(error, session)}`);
   }
 }
 
@@ -3895,13 +4165,14 @@ function registerJsonTool<InputArgs extends z.ZodRawShape>(
   inputSchema: InputArgs,
   annotations: ToolAnnotations,
   handler: (input: z.infer<z.ZodObject<InputArgs>>) => Promise<unknown>,
+  outputSchema: z.ZodTypeAny = anyOutputSchema,
 ): void {
   const registerTool = server.registerTool.bind(server) as unknown as (
     toolName: string,
     config: {
       description: string;
       inputSchema: InputArgs;
-      outputSchema: typeof anyOutputSchema;
+      outputSchema: z.ZodTypeAny;
       annotations: ToolAnnotations;
     },
     callback: (input: unknown) => Promise<unknown>,
@@ -3912,7 +4183,7 @@ function registerJsonTool<InputArgs extends z.ZodRawShape>(
     {
       description,
       inputSchema,
-      outputSchema: anyOutputSchema,
+      outputSchema,
       annotations,
     },
     async (input: unknown): Promise<unknown> => handler(input as z.infer<z.ZodObject<InputArgs>>),
@@ -3924,7 +4195,7 @@ server.registerTool(
   {
     description: "Return server, browser, queue, session, and policy status without launching a page.",
     inputSchema: {},
-    outputSchema: anyOutputSchema,
+    outputSchema: statusOutputSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -3938,13 +4209,13 @@ server.registerTool(
 registerJsonTool("browse", "Navigate once and return bounded page content.", browseToolShape, readOnlyOpenWorld, async (input) => handleBrowse(input as BrowseToolInput));
 registerJsonTool("browse_snapshot", "Navigate once and return visible text, ARIA snapshot, and interactive metadata.", snapshotToolShape, readOnlyOpenWorld, async (input) => handleSnapshot(input as SnapshotToolInput));
 registerJsonTool("browse_sequence", "Navigate once, run bounded selector actions, then return final state.", sequenceToolShape, nonReadOnlyOpenWorld, async (input) => handleSequence(input as SequenceToolInput));
-registerJsonTool("browse_links", "Navigate once and return only visible navigable links.", linksToolShape, readOnlyOpenWorld, async (input) => handleLinks(input as LinksToolInput));
-registerJsonTool("browse_forms", "Navigate once and return form fields and submit controls.", formsToolShape, readOnlyOpenWorld, async (input) => handleForms(input as FormsToolInput));
-registerJsonTool("browse_outline", "Navigate once and return page headings and landmarks.", outlineToolShape, readOnlyOpenWorld, async (input) => handleOutline(input as OutlineToolInput));
-registerJsonTool("browse_find", "Navigate once, search visible text, and return bounded context matches.", findToolShape, readOnlyOpenWorld, async (input) => handleFind(input as FindToolInput));
+registerJsonTool("browse_links", "Navigate once and return only visible navigable links.", linksToolShape, readOnlyOpenWorld, async (input) => handleLinks(input as LinksToolInput), linksOutputSchema);
+registerJsonTool("browse_forms", "Navigate once and return form fields and submit controls.", formsToolShape, readOnlyOpenWorld, async (input) => handleForms(input as FormsToolInput), formsOutputSchema);
+registerJsonTool("browse_outline", "Navigate once and return page headings and landmarks.", outlineToolShape, readOnlyOpenWorld, async (input) => handleOutline(input as OutlineToolInput), outlineOutputSchema);
+registerJsonTool("browse_find", "Navigate once, search visible text, and return bounded context matches.", findToolShape, readOnlyOpenWorld, async (input) => handleFind(input as FindToolInput), findOutputSchema);
 registerJsonTool("browse_screenshot", "Navigate once and capture a bounded screenshot.", screenshotToolShape, readOnlyOpenWorld, async (input) => handleScreenshot(input as ScreenshotToolInput));
 registerJsonTool("browse_console", "Navigate once and return bounded console diagnostics.", consoleToolShape, readOnlyOpenWorld, async (input) => handleConsole(input as ConsoleToolInput));
-registerJsonTool("browse_network_summary", "Navigate once and return a bounded network diagnostic summary.", networkSummaryToolShape, readOnlyOpenWorld, async (input) => handleNetworkSummary(input as NetworkSummaryToolInput));
+registerJsonTool("browse_network_summary", "Navigate once and return a bounded network diagnostic summary.", networkSummaryToolShape, readOnlyOpenWorld, async (input) => handleNetworkSummary(input as NetworkSummaryToolInput), networkSummaryOutputSchema);
 registerJsonTool("browse_session_start", "Start an isolated short-lived browser session.", sessionStartToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionStart(input as SessionStartToolInput));
 registerJsonTool("browse_session_navigate", "Navigate an existing browser session.", sessionNavigateToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionNavigate(input as SessionNavigateToolInput));
 registerJsonTool("browse_session_action", "Run one bounded action in an existing browser session.", sessionActionToolShape, nonReadOnlyOpenWorld, async (input) => handleSessionAction(input as SessionActionToolInput));
