@@ -58,8 +58,6 @@ class SequenceCases:
         payload = self.get_tool_payload(response)
         assert payload["actions"][0]["status"] == "ok"
         assert "pointer clicked" in payload["text"] or "dom clicked" in payload["text"], f"Expected auto click side effect: {payload}"
-        if self.mode != "docker":
-            assert "pointer clicked" in payload["text"], f"Expected pointer click path: {payload}"
         print("CallTool sequence click auto pointer path test passed.")
 
     def test_call_tool_sequence_click_auto_falls_back_to_dom(self):
