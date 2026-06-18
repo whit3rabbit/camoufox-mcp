@@ -1,5 +1,95 @@
 # Configuration for AI Assistants
 
+## Installable Agent Skill and Plugin Bundle
+
+The repository includes `plugins/camoufox/`, an installable bundle that packages:
+
+- the `camoufox` skill at `plugins/camoufox/skills/camoufox/SKILL.md`
+- the safe MCP config at `plugins/camoufox/.mcp.json`
+- Codex plugin metadata at `plugins/camoufox/.codex-plugin/plugin.json`
+- Claude plugin metadata at `plugins/camoufox/.claude-plugin/plugin.json`
+
+The bundled MCP server config is intentionally safe by default:
+
+```json
+{
+  "mcpServers": {
+    "camoufox": {
+      "command": "npx",
+      "args": ["-y", "camoufox-mcp-server@latest"]
+    }
+  }
+}
+```
+
+It does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. Add that env var only when the operator explicitly approves `firefox_user_prefs`, `args`, or `exclude_addons`. After enabling it, verify with `camoufox_status.unsafeOptionsAllowed` before sending those options.
+
+### Claude Code Plugin
+
+From a clone of this repository:
+
+```text
+/plugin marketplace add /absolute/path/to/camoufox-mcp
+/plugin install camoufox@camoufox-mcp
+```
+
+Claude reads `.claude-plugin/marketplace.json`, then installs the bundle from `plugins/camoufox/`.
+
+### Codex Plugin
+
+Codex can read the repo marketplace at `.agents/plugins/marketplace.json`.
+
+For a local clone:
+
+```bash
+codex plugin marketplace add /absolute/path/to/camoufox-mcp
+codex plugin add camoufox@camoufox-mcp
+```
+
+Restart Codex or start a new thread after installing so the bundled skill and MCP server are loaded.
+
+### OpenClaw Bundle
+
+OpenClaw detects the bundle through `.codex-plugin/plugin.json` or `.claude-plugin/plugin.json`:
+
+```bash
+openclaw plugins install /absolute/path/to/camoufox-mcp/plugins/camoufox
+openclaw plugins inspect camoufox
+openclaw gateway restart
+```
+
+OpenClaw exposes bundled MCP tools with provider-safe names such as `camoufox__browse`.
+
+### Hermes Skill
+
+Hermes can install the skill directly from the repository path once the repo is public:
+
+```bash
+hermes skills install whit3rabbit/camoufox-mcp/plugins/camoufox/skills/camoufox
+```
+
+For local development, copy `plugins/camoufox/skills/camoufox/` into `~/.hermes/skills/camoufox/`. Hermes skills do not automatically install MCP servers, so configure the `camoufox` MCP server separately using the npx command above.
+
+### Antigravity Skill
+
+Copy `plugins/camoufox/skills/camoufox/` into the desired Antigravity skill scope:
+
+```bash
+# Project scope
+mkdir -p .agents/skills
+cp -R plugins/camoufox/skills/camoufox .agents/skills/camoufox
+
+# Global Antigravity scope
+mkdir -p ~/.gemini/config/skills
+cp -R plugins/camoufox/skills/camoufox ~/.gemini/config/skills/camoufox
+
+# Antigravity CLI global scope
+mkdir -p ~/.gemini/antigravity-cli/skills
+cp -R plugins/camoufox/skills/camoufox ~/.gemini/antigravity-cli/skills/camoufox
+```
+
+Configure the MCP server in Antigravity separately with the npx command above if the host does not import plugin MCP config.
+
 <details>
 <summary>Claude Code (CLI)</summary>
 

@@ -22,6 +22,9 @@
     "files": [
         "dist/**/*",
         "docs/**/*",
+        "plugins/**/*",
+        ".claude-plugin/**/*",
+        ".agents/plugins/**/*",
         "README.md",
         "LICENSE"
     ],

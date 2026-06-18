@@ -1,0 +1,23 @@
+{
+  "name": "camoufox",
+  "displayName": "Camoufox",
+  "version": "2.0.7",
+  "description": "Bundle Camoufox MCP browser automation tools and usage guidance.",
+  "author": {
+    "name": "followthewhit3rabbit",
+    "url": "https://github.com/whit3rabbit"
+  },
+  "homepage": "https://github.com/whit3rabbit/camoufox-mcp#readme",
+  "repository": "https://github.com/whit3rabbit/camoufox-mcp",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "camoufox",
+    "browser",
+    "automation",
+    "privacy",
+    "anti-detection"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

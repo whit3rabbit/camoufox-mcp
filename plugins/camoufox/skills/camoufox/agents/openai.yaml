@@ -1,0 +1,4 @@
+interface:
+  display_name: "Camoufox Browser"
+  short_description: "Stealth browser automation for MCP"
+  default_prompt: "Use $camoufox to browse a site with Camoufox MCP."

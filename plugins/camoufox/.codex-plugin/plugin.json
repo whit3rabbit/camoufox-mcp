@@ -1,0 +1,40 @@
+{
+  "name": "camoufox",
+  "version": "2.0.7",
+  "description": "Bundle Camoufox MCP browser automation tools and usage guidance.",
+  "author": {
+    "name": "followthewhit3rabbit",
+    "url": "https://github.com/whit3rabbit"
+  },
+  "homepage": "https://github.com/whit3rabbit/camoufox-mcp#readme",
+  "repository": "https://github.com/whit3rabbit/camoufox-mcp",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "camoufox",
+    "browser",
+    "automation",
+    "privacy",
+    "anti-detection"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Camoufox",
+    "shortDescription": "Stealth browser automation via MCP",
+    "longDescription": "Install Camoufox MCP browser automation tools with portable guidance for browsing, screenshots, extraction, sessions, diagnostics, and privacy-sensitive tuning.",
+    "developerName": "followthewhit3rabbit",
+    "category": "Browser",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/whit3rabbit/camoufox-mcp",
+    "defaultPrompt": [
+      "Use Camoufox to inspect a website.",
+      "Use Camoufox to screenshot a page.",
+      "Use Camoufox to list page forms and links."
+    ],
+    "brandColor": "#10A37F"
+  }
+}

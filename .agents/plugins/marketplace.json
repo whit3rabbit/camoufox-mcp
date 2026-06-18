@@ -1,0 +1,20 @@
+{
+  "name": "camoufox-mcp",
+  "interface": {
+    "displayName": "Camoufox MCP"
+  },
+  "plugins": [
+    {
+      "name": "camoufox",
+      "source": {
+        "source": "local",
+        "path": "./plugins/camoufox"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Browser"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "camoufox": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "camoufox-mcp-server@latest"
+      ]
+    }
+  }
+}
