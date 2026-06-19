@@ -26,14 +26,21 @@ It does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. Add that env var only when 
 
 ### Claude Code Plugin
 
-From a clone of this repository:
+From the public GitHub repository:
+
+```text
+/plugin marketplace add whit3rabbit/camoufox-mcp
+/plugin install camoufox@camoufox-mcp
+```
+
+Or from a local clone of this repository:
 
 ```text
 /plugin marketplace add /absolute/path/to/camoufox-mcp
 /plugin install camoufox@camoufox-mcp
 ```
 
-Claude reads `.claude-plugin/marketplace.json`, then installs the bundle from `plugins/camoufox/`.
+Claude reads `.claude-plugin/marketplace.json`, then installs the bundle from `plugins/camoufox/`. The `camoufox` skill is auto-discovered from `plugins/camoufox/skills/`, and the MCP server is registered from `plugins/camoufox/.mcp.json`. Restart Claude Code or start a new session after installing.
 
 ### Codex Plugin
 

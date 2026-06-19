@@ -140,6 +140,8 @@ CLAUDE.md
 .claude
 
 # Project specific
+# skill-creator benchmark scratch (eval run outputs, grading/timing)
+plugins/camoufox/skills/camoufox-workspace/
 data-files/
 .syntext/
 .DS_Store

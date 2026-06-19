@@ -30,7 +30,16 @@ Codex stores MCP servers in `~/.codex/config.toml` by default. Verify with `/mcp
 
 ### Agent Skill and Plugin Bundle
 
-This repo also ships an installable agent skill/plugin bundle at `plugins/camoufox/`. It packages the same safe MCP command plus the `camoufox` skill for Claude Code, Codex, OpenClaw, Hermes, and Antigravity. See [Configuration for AI assistants](docs/configuration.md#installable-agent-skill-and-plugin-bundle).
+This repo also ships an installable agent skill/plugin bundle at `plugins/camoufox/`. It packages the same safe MCP command plus the `camoufox` skill for Claude Code, Codex, OpenClaw, Hermes, and Antigravity.
+
+For Claude Code, install the plugin (skill + MCP server) from this repo's marketplace:
+
+```text
+/plugin marketplace add whit3rabbit/camoufox-mcp
+/plugin install camoufox@camoufox-mcp
+```
+
+The `camoufox` skill is auto-discovered from the bundle's `skills/` directory; the MCP server is registered from `.mcp.json`. Restart Claude Code or start a new session after installing. For other hosts (Codex, OpenClaw, Hermes, Antigravity) and local-clone install paths, see [Configuration for AI assistants](docs/configuration.md#installable-agent-skill-and-plugin-bundle).
 
 ### opencode
 

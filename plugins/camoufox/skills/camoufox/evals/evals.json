@@ -1,0 +1,39 @@
+{
+  "skill_name": "camoufox",
+  "evals": [
+    {
+      "id": 0,
+      "name": "links-extraction",
+      "prompt": "I'm building a sitemap. Give me the full list of links on https://www.iana.org/help/example-domains -- I only care about the link URLs themselves, not the page's article text.",
+      "expected_output": "A list of links from the page, gathered with browse_links rather than dumping full page text via browse.",
+      "files": [],
+      "assertions": [
+        { "text": "Used browse_links (not a full browse text dump) to gather the links", "passed": false, "evidence": "" },
+        { "text": "Returned an actual list of link URLs from the page", "passed": false, "evidence": "" },
+        { "text": "Did not pull the page's full article body into context", "passed": false, "evidence": "" }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "targeted-find",
+      "prompt": "Does the page at https://example.com say anything about needing permission to use the domain? If so, quote the exact sentence.",
+      "expected_output": "Confirms the page mentions using the domain without prior coordination or asking for permission, quoting the sentence, ideally gathered with browse_find rather than a full page read.",
+      "files": [],
+      "assertions": [
+        { "text": "Used browse_find with a query (targeted) rather than reading the whole page", "passed": false, "evidence": "" },
+        { "text": "Correctly answers yes and quotes the sentence about permission", "passed": false, "evidence": "" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "structure-only",
+      "prompt": "I want to understand how https://www.iana.org/ is organized. Give me just its heading / section structure. I do not need the body text.",
+      "expected_output": "Page headings / landmarks gathered with browse_outline rather than a full browse text dump.",
+      "files": [],
+      "assertions": [
+        { "text": "Used browse_outline (not full browse text) to get structure", "passed": false, "evidence": "" },
+        { "text": "Returned headings / landmarks rather than the full page body", "passed": false, "evidence": "" }
+      ]
+    }
+  ]
+}
