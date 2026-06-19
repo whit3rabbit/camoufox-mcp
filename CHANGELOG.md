@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-18
+
 ### Added
+- Advertised server policy in the `initialize` response under `capabilities.extensions["camoufox-mcp"].policy` (`unsafeOptionsAllowed`, `evaluateAllowed`, `captchaAutonomous`, default wait strategy and stealth profile), so clients can inspect posture without launching a browser.
+- Logged a stderr warning naming the rejected option family when unsafe browser options are sent without `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`.
 - Added opt-in `clickMode: "auto"` for click actions, `CAPTCHA_AUTONOMOUS=true` for LLM-assisted challenge context and provider playbooks, and network sandbox posture reporting in `camoufox_status`.
+
+### Changed
+- Defaulted `waitStrategy` to `domcontentloaded` (was `load`) across `browse` and session navigation, avoiding hangs on sites with long-lived connections. Centralized the default and the default stealth profile as config constants.
+- Corrected the plugin marketplace manifest to the current schema (top-level `description`/`version`) and documented the `/plugin marketplace add` + install flow.
 
 ### Fixed
 - Bounded `browse_sequence` with a cumulative action timeout policy and graceful fatal shutdown cleanup.
