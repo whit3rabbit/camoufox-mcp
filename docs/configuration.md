@@ -5,24 +5,27 @@
 The repository includes `plugins/camoufox/`, an installable bundle that packages:
 
 - the `camoufox` skill at `plugins/camoufox/skills/camoufox/SKILL.md`
-- the safe MCP config at `plugins/camoufox/.mcp.json`
+- the MCP config at `plugins/camoufox/.mcp.json`
 - Codex plugin metadata at `plugins/camoufox/.codex-plugin/plugin.json`
 - Claude plugin metadata at `plugins/camoufox/.claude-plugin/plugin.json`
 
-The bundled MCP server config is intentionally safe by default:
+The bundled MCP server config enables unsafe browser options so the skill can use `firefox_user_prefs`, `args`, and `exclude_addons` for hard-site tuning:
 
 ```json
 {
   "mcpServers": {
     "camoufox": {
       "command": "npx",
-      "args": ["-y", "camoufox-mcp-server@latest"]
+      "args": ["-y", "camoufox-mcp-server@latest"],
+      "env": {
+        "CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1"
+      }
     }
   }
 }
 ```
 
-It does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. Add that env var only when the operator explicitly approves `firefox_user_prefs`, `args`, or `exclude_addons`. After enabling it, verify with `initialize.result.capabilities.extensions["camoufox-mcp"].policy.unsafeOptionsAllowed` or `camoufox_status.unsafeOptionsAllowed` before sending those options.
+Bare `npx -y camoufox-mcp-server@latest` remains safe by default and does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. After installing the bundle, verify the active state with `initialize.result.capabilities.extensions["camoufox-mcp"].policy.unsafeOptionsAllowed` or `camoufox_status.unsafeOptionsAllowed` before sending unsafe options.
 
 ### Claude Code Plugin
 
@@ -60,10 +63,13 @@ Restart Codex or start a new thread after installing so the bundled skill and MC
 OpenClaw detects the bundle through `.codex-plugin/plugin.json` or `.claude-plugin/plugin.json`:
 
 ```bash
-openclaw plugins install /absolute/path/to/camoufox-mcp/plugins/camoufox
+openclaw plugins install clawhub:@whit3rabbit/camoufox-mcp
 openclaw plugins inspect camoufox
+openclaw plugins doctor
 openclaw gateway restart
 ```
+
+For a local clone, replace the ClawHub spec with `/absolute/path/to/camoufox-mcp/plugins/camoufox`.
 
 OpenClaw exposes bundled MCP tools with provider-safe names such as `camoufox__browse`.
 
@@ -73,9 +79,49 @@ Hermes can install the skill directly from the repository path once the repo is 
 
 ```bash
 hermes skills install whit3rabbit/camoufox-mcp/plugins/camoufox/skills/camoufox
+hermes mcp add camoufox --command npx --env CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 --args -y camoufox-mcp-server@latest
 ```
 
-For local development, copy `plugins/camoufox/skills/camoufox/` into `~/.hermes/skills/camoufox/`. Hermes skills do not automatically install MCP servers, so configure the `camoufox` MCP server separately using the npx command above.
+Hermes skills do not automatically install MCP servers, so configure the `camoufox` MCP server separately using `hermes mcp add`. In that command, `--env` values are `KEY=VALUE`, and `--args` must be the last option with plain argv tokens. Do not pass JSON strings such as `--args '["-y", "camoufox-mcp-server@latest"]'`.
+
+The resulting config should look like this:
+
+```yaml
+mcp_servers:
+  camoufox:
+    command: npx
+    args:
+      - -y
+      - camoufox-mcp-server@latest
+    enabled: true
+    env:
+      CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS: "1"
+```
+
+For local development, copy `plugins/camoufox/skills/camoufox/` into `~/.hermes/skills/camoufox/`, run `npm install && npm run build`, and use this shape instead:
+
+```yaml
+mcp_servers:
+  camoufox:
+    command: node
+    args:
+      - /absolute/path/to/camoufox-mcp/dist/index.js
+    enabled: true
+    env:
+      CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS: "1"
+```
+
+Verify and reload from a separate terminal:
+
+```bash
+hermes mcp list
+hermes mcp test camoufox
+hermes gateway restart
+```
+
+After restart, Camoufox tools should appear as `mcp_camoufox_*`. Use `mcp_camoufox_camoufox_status` to confirm `unsafeOptionsAllowed: true`. `browser_navigate` is Hermes' built-in browser tool, not Camoufox.
+
+If Hermes reports an ambiguous `camoufox` skill, keep only one installed Camoufox skill path or load the categorized path explicitly.
 
 ### Antigravity Skill
 

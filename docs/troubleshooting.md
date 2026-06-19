@@ -24,6 +24,20 @@
    - The default `waitStrategy` is `domcontentloaded`
    - If a call overrides it to `load` or `networkidle`, try removing the override or setting `waitStrategy: "domcontentloaded"`
 
+6. **Hermes MCP tools do not appear or discovery fails**
+   - Native module errors such as `better-sqlite3` compiled for the wrong Node.js version usually come from the host or gateway dependency tree, not this server
+   - Rebuild the host dependency under the Node version used by that host, then restart the gateway so the MCP server process reloads native modules
+   - For Hermes direct skill installs, register the MCP server explicitly:
+     `hermes mcp add camoufox --command npx --env CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 --args -y camoufox-mcp-server@latest`
+   - `--args` must be the last option and must receive plain argv tokens, not a JSON array string
+   - In `~/.hermes/config.yaml`, `mcp_servers.camoufox.args` must be a YAML list and `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` must be `"1"` without embedded quote characters
+   - Verify with `hermes mcp list` and `hermes mcp test camoufox`, then restart Hermes from a separate terminal
+   - Camoufox tools appear as `mcp_camoufox_*`; `browser_navigate` is Hermes' built-in browser, not Camoufox
+   - If Hermes reports ambiguous `camoufox` skills, keep only one installed Camoufox skill path or load the categorized path explicitly
+
+7. **OpenClaw still uses an old MCP process after rebuild**
+   - Restart the OpenClaw gateway after changing config or rebuilding the server
+
 ### Debug Mode
 
 To see detailed logs, run the server directly:

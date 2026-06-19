@@ -1,0 +1,29 @@
+{
+  "name": "@whit3rabbit/camoufox-mcp",
+  "version": "2.1.1",
+  "description": "Camoufox MCP browser automation bundle for OpenClaw.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/whit3rabbit/camoufox-mcp.git",
+    "directory": "plugins/camoufox"
+  },
+  "keywords": [
+    "openclaw",
+    "clawhub",
+    "mcp",
+    "camoufox",
+    "browser",
+    "automation"
+  ],
+  "files": [
+    ".codex-plugin/",
+    ".claude-plugin/",
+    ".mcp.json",
+    "openclaw.plugin.json",
+    "skills/camoufox/SKILL.md",
+    "skills/camoufox/agents/",
+    "skills/camoufox/references/"
+  ]
+}

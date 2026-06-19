@@ -1,0 +1,14 @@
+{
+  "id": "camoufox-mcp",
+  "name": "Camoufox MCP",
+  "description": "Bundles Camoufox MCP browser automation skill and MCP server config.",
+  "version": "2.1.1",
+  "skills": [
+    "./skills"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

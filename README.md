@@ -30,16 +30,64 @@ Codex stores MCP servers in `~/.codex/config.toml` by default. Verify with `/mcp
 
 ### Agent Skill and Plugin Bundle
 
-This repo also ships an installable agent skill/plugin bundle at `plugins/camoufox/`. It packages the same safe MCP command plus the `camoufox` skill for Claude Code, Codex, OpenClaw, Hermes, and Antigravity.
+Use these when you want the `camoufox` skill plus the packaged MCP server config. If you only need the MCP server, use the Claude Code or Codex MCP commands above. Bare `npx -y camoufox-mcp-server@latest` remains safe by default. The packaged plugin bundle enables `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` so the skill can use `firefox_user_prefs`, `args`, and `exclude_addons` for hard-site tuning.
 
-For Claude Code, install the plugin (skill + MCP server) from this repo's marketplace:
+#### OpenClaw
+
+Install the published ClawHub bundle:
+
+```bash
+openclaw plugins install clawhub:@whit3rabbit/camoufox-mcp
+openclaw plugins inspect camoufox
+openclaw plugins doctor
+openclaw gateway restart
+```
+
+OpenClaw exposes bundled MCP tools with provider-safe names such as `camoufox__browse`.
+
+#### Claude Code
+
+Install the plugin from this repo's marketplace:
 
 ```text
 /plugin marketplace add whit3rabbit/camoufox-mcp
 /plugin install camoufox@camoufox-mcp
 ```
 
-The `camoufox` skill is auto-discovered from the bundle's `skills/` directory; the MCP server is registered from `.mcp.json`. Restart Claude Code or start a new session after installing. For other hosts (Codex, OpenClaw, Hermes, Antigravity) and local-clone install paths, see [Configuration for AI assistants](docs/configuration.md#installable-agent-skill-and-plugin-bundle).
+Restart Claude Code or start a new session after installing.
+
+#### Codex
+
+Install the plugin from this repo's marketplace:
+
+```bash
+codex plugin marketplace add whit3rabbit/camoufox-mcp
+codex plugin add camoufox@camoufox-mcp
+```
+
+Restart Codex or start a new thread after installing.
+
+#### Hermes
+
+Install the skill and then register the MCP server separately:
+
+```bash
+hermes skills install whit3rabbit/camoufox-mcp/plugins/camoufox/skills/camoufox
+hermes mcp add camoufox --command npx --env CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 --args -y camoufox-mcp-server@latest
+```
+
+Hermes direct skill installs do not automatically register MCP servers.
+
+Hermes treats `--args` as plain argv tokens and it must be the last option. Do not pass a JSON array string there. Verify with:
+
+```bash
+hermes mcp list
+hermes mcp test camoufox
+```
+
+Restart Hermes from a separate terminal after changing MCP config, then use `mcp_camoufox_camoufox_status` to confirm `unsafeOptionsAllowed: true`. `browser_navigate` is Hermes' built-in browser tool, not Camoufox.
+
+For local-clone installs and additional hosts, see [Configuration for AI assistants](docs/configuration.md#installable-agent-skill-and-plugin-bundle).
 
 ### opencode
 

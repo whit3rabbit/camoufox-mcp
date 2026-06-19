@@ -5,7 +5,10 @@
       "args": [
         "-y",
         "camoufox-mcp-server@latest"
-      ]
+      ],
+      "env": {
+        "CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1"
+      }
     }
   }
 }

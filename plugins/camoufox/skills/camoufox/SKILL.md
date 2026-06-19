@@ -12,18 +12,21 @@ Every tool launches or reuses a real browser, so each call costs time and tokens
 1. **Pick the narrowest tool for the question** (see Choosing a Tool). A page's link list, headings, or one text match is far cheaper than its full rendered text.
 2. **Bound every call.** Set `maxChars`, `selector`, or `outputMode: "metadata"` so a giant page can't blow up your context.
 
-This skill does not start the server. Confirm an MCP server named `camoufox` is available first. The installable plugin ships this safe default config (unsafe options off):
+This skill does not start the server. Confirm an MCP server named `camoufox` is available first. The installable plugin ships this config with unsafe browser options enabled so hard-site tuning can use `firefox_user_prefs`, `args`, and `exclude_addons`:
 
 ```json
 {
   "mcpServers": {
     "camoufox": {
       "command": "npx",
-      "args": ["-y", "camoufox-mcp-server@latest"]
+      "args": ["-y", "camoufox-mcp-server@latest"],
+      "env": { "CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1" }
     }
   }
 }
 ```
+
+Bare `npx -y camoufox-mcp-server@latest` remains safe by default unless the host config adds that env var.
 
 ## Tool Names
 
@@ -34,6 +37,8 @@ Hosts expose MCP tool names differently. Use whatever the host lists; common for
 - Raw MCP name: `browse`
 
 This skill uses raw names (`browse`, `browse_find`, ...). Map them to your host's form.
+
+In Hermes, `browser_navigate` is the built-in browser tool, not Camoufox. Use the `mcp_camoufox_*` tools after `hermes mcp test camoufox` succeeds.
 
 ## Choosing a Tool
 
@@ -77,13 +82,7 @@ Fields worth reading:
 
 The active default wait strategy and stealth profile are advertised separately, during MCP `initialize`, at `result.capabilities.extensions["camoufox-mcp"].policy` (`defaultWaitStrategy`, `defaultStealthProfile`) — not in the `camoufox_status` body.
 
-Safe default: the bundled config does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. To use unsafe browser options, the operator must intentionally add:
-
-```json
-{ "env": { "CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1" } }
-```
-
-Do not add that (or `CAMOUFOX_MCP_ALLOW_EVALUATE`) unless the user or project config explicitly opts in.
+Packaged plugin default: the bundled config sets `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`. Bare server installs do not. Do not add `CAMOUFOX_MCP_ALLOW_EVALUATE` unless the user or project config explicitly opts in.
 
 ## Common Calls
 
@@ -235,6 +234,34 @@ The server does not solve CAPTCHAs. It surfaces bounded challenge context for th
 ## Debugging
 
 Read `references/json-rpc-debug.md` when the host hasn't registered the server or you need to test it through raw JSON-RPC.
+
+## Host Setup Failures
+
+Native module errors such as `better-sqlite3` compiled for the wrong Node.js version are host or gateway dependency problems, not Camoufox server dependencies. Rebuild the host dependency under the Node version used by that host, then restart the gateway because the old MCP process keeps the old native module loaded.
+
+If the host blocks direct config edits, do not patch protected files. Use the host CLI or tell the operator exactly what to add. For Hermes, this verified command registers Camoufox with unsafe browser options enabled:
+
+```bash
+hermes mcp add camoufox --command npx --env CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 --args -y camoufox-mcp-server@latest
+```
+
+Hermes `--env` values are `KEY=VALUE`. `--args` must be the last option and receives plain argv tokens, not a JSON array string. If repairing `~/.hermes/config.yaml`, the entry should look like this:
+
+```yaml
+mcp_servers:
+  camoufox:
+    command: npx
+    args:
+      - -y
+      - camoufox-mcp-server@latest
+    enabled: true
+    env:
+      CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS: "1"
+```
+
+For local development, use `command: node` and a one-item `args` list containing the absolute `dist/index.js` path. Then run `hermes mcp list`, `hermes mcp test camoufox`, restart the gateway from a separate terminal, and confirm with `mcp_camoufox_camoufox_status.unsafeOptionsAllowed`.
+
+If Hermes reports an ambiguous `camoufox` skill, keep only one installed Camoufox skill path or load the categorized path explicitly.
 
 Common failures:
 

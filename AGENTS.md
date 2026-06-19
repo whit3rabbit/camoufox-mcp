@@ -34,6 +34,45 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 - Run Python test client directly: `python tests/test_client.py` (supports --mode docker|local)
 - Test server in Docker: `docker run --rm followthewhit3rabbit/camoufox-mcp`
 
+### ClawHub Package Publishing
+Use this when `plugins/camoufox/skills/camoufox/` or bundled plugin metadata changes and the OpenClaw package needs a new release.
+
+- ClawHub package: [@whit3rabbit/camoufox-mcp](https://clawhub.ai/packages/%40whit3rabbit%2Fcamoufox-mcp). OpenClaw install spec: `clawhub:@whit3rabbit/camoufox-mcp`.
+- Keep `plugins/camoufox/openclaw.plugin.json`, `plugins/camoufox/package.json`, `.codex-plugin/plugin.json`, and `.claude-plugin/plugin.json` versions aligned with the repo release version.
+- Do not publish directly from `plugins/camoufox/` if it contains generated `reports/`, `skills/camoufox/evals/`, or `skills/camoufox-workspace/`. Build a clean staging directory and publish that instead.
+- Validate before publishing. `clawhub package validate` writes `reports/` into the source folder, so validate first, then rebuild the clean staging directory for the final dry-run and publish.
+
+```bash
+clawhub package validate plugins/camoufox --json
+
+version="$(node -p 'require("./package.json").version')"
+stage="$(mktemp -d /private/tmp/camoufox-clawhub-final.XXXXXX)"
+mkdir -p "$stage/.codex-plugin" "$stage/.claude-plugin" "$stage/skills/camoufox/agents" "$stage/skills/camoufox/references"
+cp plugins/camoufox/.codex-plugin/plugin.json "$stage/.codex-plugin/plugin.json"
+cp plugins/camoufox/.claude-plugin/plugin.json "$stage/.claude-plugin/plugin.json"
+cp plugins/camoufox/.mcp.json "$stage/.mcp.json"
+cp plugins/camoufox/openclaw.plugin.json "$stage/openclaw.plugin.json"
+cp plugins/camoufox/package.json "$stage/package.json"
+cp plugins/camoufox/skills/camoufox/SKILL.md "$stage/skills/camoufox/SKILL.md"
+cp plugins/camoufox/skills/camoufox/agents/openai.yaml "$stage/skills/camoufox/agents/openai.yaml"
+cp plugins/camoufox/skills/camoufox/references/json-rpc-debug.md "$stage/skills/camoufox/references/json-rpc-debug.md"
+cp plugins/camoufox/skills/camoufox/references/sequence-actions.md "$stage/skills/camoufox/references/sequence-actions.md"
+
+clawhub package publish "$stage" \
+  --family bundle-plugin \
+  --name @whit3rabbit/camoufox-mcp \
+  --display-name "Camoufox MCP" \
+  --owner whit3rabbit \
+  --version "$version" \
+  --source-repo whit3rabbit/camoufox-mcp \
+  --source-commit "$(git rev-parse HEAD)" \
+  --source-ref "v$version" \
+  --source-path plugins/camoufox \
+  --dry-run
+```
+
+Publish by rerunning the same `clawhub package publish` command without `--dry-run`. Success criteria: dry-run lists only the runtime bundle files, publish returns a `releaseId`, and `clawhub package inspect @whit3rabbit/camoufox-mcp --json` reports the new `latestVersion`.
+
 ## Architecture
 
 ### Core Server (`src/index.ts`)
