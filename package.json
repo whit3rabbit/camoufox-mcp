@@ -65,5 +65,8 @@
         "ts-jest": "^29.4.9",
         "typescript": "^6.0.3",
         "typescript-eslint": "^8.59.3"
+    },
+    "overrides": {
+        "js-yaml": "4.2.0"
     }
 }
