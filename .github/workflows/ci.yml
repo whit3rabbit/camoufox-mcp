@@ -22,7 +22,7 @@ jobs:
         node-version: [22.x, 24.x]
     
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     
     - name: Use Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v6
@@ -52,7 +52,7 @@ jobs:
       id-token: write
     
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     
     - name: Setup Node.js
       uses: actions/setup-node@v6
@@ -79,7 +79,7 @@ jobs:
       packages: write
     
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v4
@@ -137,7 +137,7 @@ jobs:
       contents: write
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Resolve release version
       id: version
@@ -146,6 +146,7 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v3
       with:
+        tag_name: ${{ github.ref_name }}
         name: Release ${{ github.ref_name }}
         body: |
           ## Release ${{ github.ref_name }}
