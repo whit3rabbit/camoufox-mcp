@@ -107,6 +107,10 @@ Use Camoufox to browse https://developer.mozilla.org with images blocked and Web
 - Node.js 22 or higher
 - Python 3.x for running tests
 
+## Versioning
+
+`camoufox-js` and `playwright-core` are pinned (`camoufox-js` 0.10.2, `playwright-core` 1.59.0 via `overrides`). `camoufox-js` does not constrain `playwright-core`, so an unpinned install pulls the latest Playwright, and `playwright-core` 1.60+ is currently incompatible with the Camoufox browser build (1.60 breaks a navigation guard; 1.61 sends an `isMobile` viewport option Firefox/Camoufox rejects). The pins are the newest combination that passes the full test suite. They will be bumped once a newer Camoufox build and a compatible Playwright are verified together. Do not loosen them without re-running `npm run test:all`.
+
 ## Documentation
 
 - [Configuration for AI assistants](docs/configuration.md)
