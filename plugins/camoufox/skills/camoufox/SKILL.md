@@ -1,13 +1,18 @@
 ---
 name: camoufox
-description: Browser automation with Camoufox MCP. Use when an agent needs to browse, inspect, screenshot, extract page structure, run bounded browser actions, manage short-lived browser sessions, or tune privacy and anti-detection options through the camoufox-mcp-server MCP server.
+description: Browser automation with Camoufox MCP. Use when an agent needs to browse a URL, extract page text or structure, fill or submit forms, click through a page, screenshot, run diagnostics, drive a multi-step interactive browser session, or tune privacy and anti-detection options through the camoufox-mcp-server MCP server. Also use when a fetch or HTTP request gets blocked, returns a bot wall, or needs a real browser fingerprint.
 ---
 
 # Camoufox Browser Automation
 
-Camoufox is a privacy-focused Firefox browser exposed through the `camoufox-mcp-server` TypeScript MCP server. Use it for browser work that benefits from realistic fingerprints, bounded extraction, screenshots, diagnostics, or short-lived interactive sessions.
+Camoufox is a privacy-focused Firefox exposed through the `camoufox-mcp-server` MCP server. Reach for it when a plain HTTP fetch is not enough: JavaScript-rendered pages, bot walls, forms, multi-step flows, screenshots, or anything that benefits from a realistic browser fingerprint.
 
-This skill does not start the server by itself. Confirm that an MCP server named `camoufox` is available before using the tools. The installable plugin ships this safe default MCP config:
+Every tool launches or reuses a real browser, so each call costs time and tokens. The whole skill is about getting the answer in the fewest, narrowest calls. Two habits do most of the work:
+
+1. **Pick the narrowest tool for the question** (see Choosing a Tool). A page's link list, headings, or one text match is far cheaper than its full rendered text.
+2. **Bound every call.** Set `maxChars`, `selector`, or `outputMode: "metadata"` so a giant page can't blow up your context.
+
+This skill does not start the server. Confirm an MCP server named `camoufox` is available first. The installable plugin ships this safe default config (unsafe options off):
 
 ```json
 {
@@ -22,97 +27,157 @@ This skill does not start the server by itself. Confirm that an MCP server named
 
 ## Tool Names
 
-Hosts expose MCP tool names differently. Use the host's listed Camoufox tools, usually with one of these naming forms:
+Hosts expose MCP tool names differently. Use whatever the host lists; common forms:
 
 - Claude/Hermes style: `mcp_camoufox_browse`
 - OpenClaw bundle style: `camoufox__browse`
-- Raw MCP tool name: `browse`
+- Raw MCP name: `browse`
 
-Core tools:
+This skill uses raw names (`browse`, `browse_find`, ...). Map them to your host's form.
 
-- `camoufox_status`: check server, browser, queue, session, policy, and network-security posture.
-- `browse`: navigate once and return bounded text, HTML, metadata, diagnostics, and optional screenshot output.
-- `browse_snapshot`: navigate once and return visible text, ARIA snapshot data, and interactive elements.
-- `browse_sequence`: navigate once, run bounded CSS-selector actions, then return final state.
-- `browse_links`, `browse_forms`, `browse_outline`, `browse_find`: low-context page extraction.
-- `browse_screenshot`, `browse_console`, `browse_network_summary`: focused diagnostics.
-- `browse_session_start`, `browse_session_navigate`, `browse_session_action`, `browse_session_snapshot`, `browse_session_resume`, `browse_session_close`: short-lived isolated browser sessions.
+## Choosing a Tool
+
+Start from the question, not from `browse`. `browse` returns a wall of page text; the extractor tools return only the slice you asked for, which keeps your context small and the answer easy to read.
+
+| You want | Use | Why |
+| --- | --- | --- |
+| Just confirm a page loads / get title + status | `browse` with `outputMode: "metadata"` | No body text at all |
+| The page's readable text / article body | `browse` (default `text`), set `maxChars` | Bounded visible text |
+| Raw HTML (only if you truly need markup) | `browse` with `outputMode: "html"` | Skip unless parsing markup |
+| All links on the page | `browse_links` | Structured list, no body noise |
+| Form fields and submit buttons | `browse_forms` | Names, types, controls only |
+| Page structure / headings / sections | `browse_outline` | Headings + landmarks |
+| Does the page contain "X"? Where? | `browse_find` with `query` | Bounded context around matches |
+| What can I click/type? (interactive map) | `browse_snapshot` | Visible text + ARIA + elements |
+| Navigate + a few actions, then read once | `browse_sequence` | One round trip, bounded actions |
+| A screenshot | `browse_screenshot` (or `screenshot: true` on `browse`) | Image output |
+| Console errors / failed requests | `browse_console`, `browse_network_summary` | Focused diagnostics |
+| Multi-step flow with state between calls | session tools | Persistent page across calls |
+
+Rules of thumb:
+
+- Need one fact from a page? `browse_find` beats reading the whole thing.
+- If the page you want has a predictable URL (`.../page/2/`, a category, a permalink), navigate straight to it. Reserve `browse_sequence` click-throughs for when the destination URL isn't knowable up front: search results, JS-built navigation, a control with no stable href. Clicking your way to a page you could have requested directly is slower and more fragile.
+- Need to act, then read the result, in one shot? `browse_sequence`. Need to keep a logged-in / cookie-bearing page alive across several *unscripted* decisions? A session.
+- `selector` scopes an extractor to **one** matching element (e.g. `selector: "main"`). Two failure modes follow: a selector that matches nothing returns empty (not an error), and a per-item selector on a list (e.g. `.quote .author`) returns only the *first* item. For a whole list, scope to the container or drop the selector. If a scoped call comes back empty or short, widen it rather than piling on more calls chasing the same wrong selector.
+- Want exact or long text the page truncates visually (ellipsised titles, styled labels)? `browse_snapshot` reads element names from the ARIA tree, which keeps the full string where `browse` visible-text may cut it off.
 
 ## First Check
 
-Call `camoufox_status` before relying on advanced behavior.
+Call `camoufox_status` before relying on advanced behavior. It returns server, browser, queue, session, and policy state without launching a page.
 
-Check these fields:
+Fields worth reading:
 
-- `unsafeOptionsAllowed`: must be `true` before using `firefox_user_prefs`, `args`, or `exclude_addons`.
-- `networkSecurity`: confirms the server's application-layer URL policy. Treat it as best-effort SSRF protection, not proof of network egress isolation.
-- session limits and queue limits before starting multiple sessions.
+- `browserAvailable`: must be `true`, or nothing will run.
+- `unsafeOptionsAllowed`: must be `true` before sending `firefox_user_prefs`, `args`, or `exclude_addons`.
+- `evaluateAllowed`: must be `true` before using the `evaluate` action in a sequence/session.
+- `maxConcurrency`, `maxQueue`, `maxSessions`, `sessionTtlMs`: capacity limits. Sessions auto-expire after `sessionTtlMs`; don't start more than `maxSessions`.
+- `activeSessions`, `queuedRequests`: current load.
+- `networkSecurity`: the server's application-layer URL policy. `ssrfPolicy: "app_layer_best_effort"` means best-effort SSRF filtering, not proof of network isolation. Check `warning` and `strictSandboxRequired`.
 
-Safe default: the bundled MCP config does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. To use unsafe browser options, the operator must intentionally add:
+The active default wait strategy and stealth profile are advertised separately, during MCP `initialize`, at `result.capabilities.extensions["camoufox-mcp"].policy` (`defaultWaitStrategy`, `defaultStealthProfile`) — not in the `camoufox_status` body.
+
+Safe default: the bundled config does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. To use unsafe browser options, the operator must intentionally add:
 
 ```json
-{
-  "env": {
-    "CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1"
-  }
-}
+{ "env": { "CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1" } }
 ```
 
-Do not add that env var unless the user or local project config explicitly opts in.
+Do not add that (or `CAMOUFOX_MCP_ALLOW_EVALUATE`) unless the user or project config explicitly opts in.
 
 ## Common Calls
 
-Metadata-only page check:
+Metadata only (does it load? title? status):
 
 ```json
-{
-  "url": "https://example.com",
-  "outputMode": "metadata"
-}
+{ "url": "https://example.com", "outputMode": "metadata" }
 ```
 
-Visible text extraction:
+Bounded visible text:
+
+```json
+{ "url": "https://example.com", "maxChars": 12000 }
+```
+
+Find one thing on a page (cheap, targeted):
+
+```json
+{ "url": "https://example.com", "query": "pricing", "maxMatches": 3 }
+```
+
+Map what's interactive before acting:
+
+```json
+{ "url": "https://example.com", "maxElements": 80 }
+```
+
+Navigate, act, read once (no session needed):
 
 ```json
 {
-  "url": "https://example.com",
-  "waitStrategy": "domcontentloaded",
-  "maxChars": 12000
+  "url": "https://example.com/login",
+  "actions": [
+    { "type": "fill", "selector": "#user", "value": "alice" },
+    { "type": "fill", "selector": "#pass", "value": "secret" },
+    { "type": "click", "selector": "button[type=submit]" },
+    { "type": "waitFor", "loadState": "domcontentloaded" }
+  ],
+  "maxChars": 8000
 }
 ```
 
 Screenshot:
 
 ```json
-{
-  "url": "https://example.com",
-  "waitStrategy": "domcontentloaded",
-  "screenshot": true
-}
+{ "url": "https://example.com", "screenshot": true }
 ```
 
-Inspect interactive elements:
+## Sequence Actions
+
+`browse_sequence` (one round trip) and `browse_session_action` (one action in a live session) both take the same action objects. Available types: `click`, `hover`, `fill`, `type`, `select`, `press`, `waitFor`, `scroll`, `evaluate`.
+
+Read `references/sequence-actions.md` for every field, `clickMode` (DOM vs pointer), `frame` (acting inside an iframe), and `waitFor` states. Two things to remember up front:
+
+- Prefer `fill` for setting an input's value; use `type` only when you need real per-keystroke events (delays, key handlers).
+- `evaluate` runs arbitrary JS and is disabled unless the operator sets `CAMOUFOX_MCP_ALLOW_EVALUATE=1` (check `evaluateAllowed` in status first).
+
+## Interactive Sessions
+
+Use a session when you need the *same* page (cookies, login, scroll position, JS state) across several decisions you can't script up front — e.g. log in, look at the result, then decide where to go next. For a fixed known sequence, `browse_sequence` is cheaper because it's a single call.
+
+Sessions are short-lived and auto-expire after `sessionTtlMs`. Always close them when done so you don't hold a slot.
+
+Lifecycle:
+
+1. `browse_session_start` → returns a `sessionId`. Pass stealth/privacy options here; they apply for the session's life.
+2. `browse_session_navigate` → go to a URL in that session.
+3. `browse_session_action` → run one action (same action objects as sequences).
+4. `browse_session_snapshot` → read current visible text + interactive elements without acting.
+5. `browse_session_resume` → after a paused CAPTCHA or human step, wait for load state and re-read.
+6. `browse_session_close` → free the slot.
+
+Worked example — log in, then branch based on what you see:
 
 ```json
-{
-  "url": "https://example.com",
-  "waitStrategy": "domcontentloaded",
-  "maxElements": 80
-}
+// 1. start
+{}  // → { "sessionId": "abc123", ... }
+
+// 2. navigate (browse_session_navigate)
+{ "sessionId": "abc123", "url": "https://example.com/login" }
+
+// 3. fill + submit (browse_session_action, one per call)
+{ "sessionId": "abc123", "action": { "type": "fill", "selector": "#user", "value": "alice" } }
+{ "sessionId": "abc123", "action": { "type": "fill", "selector": "#pass", "value": "secret" } }
+{ "sessionId": "abc123", "action": { "type": "click", "selector": "button[type=submit]" } }
+
+// 4. read state and decide (browse_session_snapshot)
+{ "sessionId": "abc123", "maxElements": 60 }
+
+// 5. close (browse_session_close)
+{ "sessionId": "abc123" }
 ```
 
-Run a bounded sequence:
-
-```json
-{
-  "url": "https://example.com",
-  "waitStrategy": "domcontentloaded",
-  "actions": [
-    { "type": "click", "selector": "button[type=submit]" }
-  ],
-  "maxChars": 12000
-}
-```
+If a navigation or action returns a CAPTCHA pause, hand control to the user, then call `browse_session_resume` with the same `sessionId` once they've solved it.
 
 ## Stealth Profiles
 
@@ -122,23 +187,22 @@ Use `stealthProfile` as a shortcut, then override individual options only when n
 | --- | --- |
 | `normal` | Default for most browsing. Humanized cursor, GeoIP, WebRTC blocked. |
 | `privacy` | Adds WebGL blocking. More private, but can be more detectable on strict sites. |
-| `human_assisted` | Visible browser and cache enabled, useful when a human may need to interact. |
+| `human_assisted` | Visible browser and cache enabled, for when a human may need to interact. |
 | `fast` | Blocks images and disables humanization for speed. More detectable. |
 | `debug` | Enables console and network diagnostics. |
 
 ## Hard-Site Tuning
 
-This section is tuning guidance copied from prior integration work, not a fresh verification claim. Re-test with `camoufox_status` and a small browse call in your current environment before relying on it.
+This is carried-over tuning guidance, not a fresh verification claim. Re-test with `camoufox_status` and a small `browse` call in your environment before relying on it.
 
 For Reddit and similarly strict sites:
 
-- Prefer `stealthProfile: "normal"`.
-- Prefer `os: "windows"` and `locale: "en-US"`.
-- Prefer `waitStrategy: "domcontentloaded"` when sites keep network connections open or redirect after initial HTML.
-- Avoid `stealthProfile: "privacy"` if WebGL blocking itself appears to trigger detection.
-- If using `firefox_user_prefs`, first confirm `unsafeOptionsAllowed: true`.
+- Prefer `stealthProfile: "normal"`, `os: "windows"`, `locale: "en-US"`.
+- Keep the default `waitStrategy: "domcontentloaded"`; it's safer for sites that hold connections open or redirect after the first HTML.
+- Avoid `stealthProfile: "privacy"` if WebGL blocking itself seems to trigger detection.
+- `firefox_user_prefs` requires `unsafeOptionsAllowed: true`. Some prefs (e.g. `dom.serviceWorkers.enabled`) are denied even then; remove any pref the server rejects.
 
-Example opt-in tuning payload:
+Opt-in tuning payload:
 
 ```json
 {
@@ -146,14 +210,11 @@ Example opt-in tuning payload:
   "stealthProfile": "normal",
   "os": "windows",
   "locale": "en-US",
-  "waitStrategy": "domcontentloaded",
   "timeout": 30000,
   "firefox_user_prefs": {
-    "dom.ipc.enabled": false,
     "media.navigator.enabled": false,
     "privacy.resistFingerprinting": true,
     "network.http.altsvc.enabled": false,
-    "dom.serviceWorkers.enabled": false,
     "dom.battery.enabled": false,
     "intl.accept_languages": "en-US,en;q=0.9"
   }
@@ -162,21 +223,23 @@ Example opt-in tuning payload:
 
 ## CAPTCHA Handling
 
-The server does not solve CAPTCHAs. It exposes bounded challenge context for the user or host agent.
+The server does not solve CAPTCHAs. It surfaces bounded challenge context for the user or host agent. Set `captchaPolicy`:
 
-- Use `captchaPolicy: "detect"` to identify challenge signals.
-- Use `captchaPolicy: "pause"` for manual user action and then call `browse_session_resume`.
-- Use `captchaPolicy: "attempt"` only to request provider metadata, iframe hints, suggested strategy text, and a bounded screenshot.
-- `CAPTCHA_AUTONOMOUS=true` marks challenge handling as LLM-assisted and may include provider playbooks, but the server still does not perform hidden CAPTCHA bypasses.
-- Use `disable_coop: true` only when iframe interaction requires it.
+- `detect`: report challenge signals only.
+- `pause`: return state for manual action, then call `browse_session_resume`.
+- `fail`: return an error when a challenge is detected.
+- `attempt`: return enhanced metadata (provider, iframe hints, suggested strategy, bounded screenshot). Still no hidden bypass.
+
+`CAPTCHA_AUTONOMOUS=true` marks handling as LLM-assisted and may add provider playbooks, but the server still performs no covert bypass. Use `disable_coop: true` only when iframe interaction needs it.
 
 ## Debugging
 
-Read `references/json-rpc-debug.md` when the MCP host registration is not active or you need to test the server through raw JSON-RPC.
+Read `references/json-rpc-debug.md` when the host hasn't registered the server or you need to test it through raw JSON-RPC.
 
 Common failures:
 
-- Missing tools: the MCP server is not installed, not enabled, or the plugin was installed but not reloaded.
-- Unsafe options rejected: `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` is not set, or a denied unsafe pref/arg was provided.
-- Hanging navigation: try `waitStrategy: "domcontentloaded"` and a shorter `timeout`.
-- Empty output: reduce scope with `selector`, use `browse_snapshot`, or check `browse_console` and `browse_network_summary`.
+- **Missing tools**: server not installed/enabled, or plugin installed but not reloaded.
+- **Unsafe option rejected**: `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` not set, or a denied pref/arg was sent. The server logs which option family it rejected.
+- **`evaluate` rejected**: `CAMOUFOX_MCP_ALLOW_EVALUATE` not set (`evaluateAllowed: false`).
+- **Hanging navigation**: a call overrode `waitStrategy` to `load`/`networkidle`; revert to `domcontentloaded` and try a shorter `timeout`.
+- **Empty output**: narrow with `selector`, switch to `browse_snapshot`, or check `browse_console` and `browse_network_summary`.
