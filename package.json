@@ -43,7 +43,7 @@
         "build": "rimraf dist && tsc",
         "start": "node dist/index.js",
         "dev": "tsc --watch",
-        "lint": "npx eslint src/",
+        "lint": "eslint src/",
         "fetch:camoufox": "npx camoufox-js fetch",
         "test": "npm run test:local",
         "test:unit": "npm run build && node tests/unit_policy.mjs",

@@ -2,7 +2,7 @@ import { Camoufox, type LaunchOptions } from "camoufox-js";
 import type { Browser, BrowserContext, Page, Response, Route } from "playwright-core";
 import chalk from "chalk";
 import { parseAndValidateBrowserRequestUrl, validateBrowserRequestUrl, validateTargetUrl } from "./policy.js";
-import { GUARD_SETTLE_MS, LAUNCH_TIMEOUT_MS, MAX_CONCURRENCY, MAX_GUARDED_REQUESTS, MAX_QUEUE, QUEUE_TIMEOUT_MS } from "./config.js";
+import { DEFAULT_WAIT_STRATEGY, GUARD_SETTLE_MS, LAUNCH_TIMEOUT_MS, MAX_CONCURRENCY, MAX_GUARDED_REQUESTS, MAX_QUEUE, QUEUE_TIMEOUT_MS } from "./config.js";
 import { createDiagnosticsCollector } from "./diagnostics.js";
 import { browserContextOptions, buildCamoufoxOptions, validateCommonBrowserInput } from "./browser-options.js";
 import type { BrowserInstance, BrowserOperationContext, CamoufoxOptions, CommonBrowserInput, PendingBrowse, RequestGuard, SlotRelease } from "./types.js";
@@ -195,7 +195,7 @@ export async function runBrowserOperation<T>(
 
   return withBrowserSlot(async () => {
     const selectedOS = selectOperatingSystem(effectiveInput.os);
-    const waitStrategy = effectiveInput.waitStrategy ?? "load";
+    const waitStrategy = effectiveInput.waitStrategy ?? DEFAULT_WAIT_STRATEGY;
     const headlessMode = defaultHeadlessMode(effectiveInput.headless);
 
     console.error(chalk.blue(`[Camoufox] Launching browser to ${label}: ${safeUrl}`));

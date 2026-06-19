@@ -19,6 +19,15 @@ class StatusSecurityCases:
         })
         init_response = self.get_response(init_id)
         assert init_response and "result" in init_response, "Handshake failed at InitializeRequest"
+        capabilities = init_response["result"]["capabilities"]
+        camoufox_extension = capabilities.get("extensions", {}).get("camoufox-mcp")
+        assert camoufox_extension, f"Initialize response missing camoufox-mcp extension: {capabilities}"
+        assert camoufox_extension["policy"]["unsafeOptionsAllowed"] is False, camoufox_extension
+        assert camoufox_extension["policy"]["evaluateAllowed"] is False, camoufox_extension
+        assert camoufox_extension["policy"]["captchaAutonomous"] is False, camoufox_extension
+        assert camoufox_extension["policy"]["defaultWaitStrategy"] == "domcontentloaded", camoufox_extension
+        assert camoufox_extension["policy"]["defaultStealthProfile"] == "normal", camoufox_extension
+        assert camoufox_extension["tools"]["browseSessionNavigateWaitStrategy"] is True, camoufox_extension
         print("InitializeRequest successful.")
 
         # 2. Client sends InitializedNotification (no ID)
@@ -76,7 +85,12 @@ class StatusSecurityCases:
             assert "outputSchema" in tool, f"{tool['name']} should expose output schema"
 
         wait_strategy = tool_by_name["browse"]["inputSchema"]["properties"]["waitStrategy"]
-        assert wait_strategy.get("default") == "load"
+        assert wait_strategy.get("default") == "domcontentloaded"
+        stealth_profile = tool_by_name["browse"]["inputSchema"]["properties"]["stealthProfile"]
+        assert stealth_profile.get("default") == "normal"
+        session_wait_strategy = tool_by_name["browse_session_navigate"]["inputSchema"]["properties"].get("waitStrategy")
+        assert session_wait_strategy, "browse_session_navigate should expose waitStrategy"
+        assert set(session_wait_strategy.get("enum", [])) == {"domcontentloaded", "load", "networkidle"}
         assert tool_by_name["browse"]["annotations"]["readOnlyHint"] is True
         assert tool_by_name["browse_sequence"]["annotations"]["readOnlyHint"] is False
 
@@ -270,12 +284,15 @@ class StatusSecurityCases:
 
     def test_call_tool_browse_rejects_unsafe_options(self):
         print("--- Running Test: Call Tool - Reject Unsafe Browser Options ---")
+        stderr_start = len(self.stderr_lines)
         response = self._call_tool("browse", {
             "url": self._example_url(),
-            "args": ["--remote-debugging-port=0"]
+            "firefox_user_prefs": {"privacy.resistFingerprinting": True}
         }, timeout=10)
         assert response and response.get("result", {}).get("isError"), f"Unsafe browser options were not rejected: {response}"
         assert "unsafe browser options" in self.get_tool_text(response).lower()
+        new_stderr = "\n".join(self.stderr_lines[stderr_start:])
+        assert "firefox_user_prefs requires CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1" in new_stderr, new_stderr
         print("CallTool unsafe browser options rejection test passed.")
 
     def test_call_tool_browse_rejects_excluded_addons(self):

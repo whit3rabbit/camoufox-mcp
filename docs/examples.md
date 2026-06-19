@@ -97,7 +97,7 @@ Navigate to the documentation site for React and find information about hooks.
 
 The AI can use advanced parameters like:
 - `os`: Spoof operating system (windows, macos, linux)
-- `waitStrategy`: How to wait for page load (domcontentloaded, load, networkidle)
+- `waitStrategy`: How to wait for page load. Defaults to `domcontentloaded`; use `load` or `networkidle` only for pages where waiting for all resources or network quiescence is useful.
 - `timeout`: Maximum time to wait (5-300 seconds)
 - `outputMode`: Return visible text, raw HTML, or metadata only
 - `maxChars`: Cap returned text or HTML

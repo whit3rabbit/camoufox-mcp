@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_STEALTH_PROFILE } from "../config.js";
 
 export const viewportSchema = z.object({
   width: z.number().min(320).max(3840).default(1920),
@@ -46,7 +47,7 @@ export const screenshotOptionsSchema = z.object({
   quality: z.number().int().min(1).max(100).optional().describe("JPEG quality from 1-100. Ignored for PNG."),
 }).optional().describe("Optional screenshot capture settings. Used only when screenshot is true.");
 
-export const stealthProfileSchema = z.enum(["normal", "privacy", "human_assisted", "fast", "debug"]).optional()
+export const stealthProfileSchema = z.enum(["normal", "privacy", "human_assisted", "fast", "debug"]).optional().default(DEFAULT_STEALTH_PROFILE)
   .describe("Convenience profile for common Camoufox browser settings. Explicit options override profile values.");
 export const captchaPolicySchema = z.enum(["detect", "pause", "fail", "attempt"]).optional()
   .describe("Challenge handling policy. 'detect' reports signals, 'pause' returns state for human action, 'fail' returns an error, 'attempt' returns enhanced challenge metadata, interactive elements, a bounded screenshot, and a suggested strategy. When CAPTCHA_AUTONOMOUS=true, responses are marked for LLM-assisted handling and include provider-specific challengePlaybook context when known.");

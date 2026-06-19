@@ -22,7 +22,7 @@ The bundled MCP server config is intentionally safe by default:
 }
 ```
 
-It does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. Add that env var only when the operator explicitly approves `firefox_user_prefs`, `args`, or `exclude_addons`. After enabling it, verify with `camoufox_status.unsafeOptionsAllowed` before sending those options.
+It does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. Add that env var only when the operator explicitly approves `firefox_user_prefs`, `args`, or `exclude_addons`. After enabling it, verify with `initialize.result.capabilities.extensions["camoufox-mcp"].policy.unsafeOptionsAllowed` or `camoufox_status.unsafeOptionsAllowed` before sending those options.
 
 ### Claude Code Plugin
 

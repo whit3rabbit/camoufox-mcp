@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { NetworkSandboxMode, NetworkSecurityStatus, SupportedOs } from "./types.js";
+import type { NetworkSandboxMode, NetworkSecurityStatus, StealthProfile, SupportedOs, WaitStrategy } from "./types.js";
 
 export const SERVER_VERSION = "2.0.7";
 export const DEFAULT_MAX_CHARS = 30000;
@@ -8,6 +8,8 @@ export const DEFAULT_MAX_ELEMENTS = 100;
 export const MAX_MAX_ELEMENTS = 500;
 export const MAX_SEQUENCE_ACTIONS = 25;
 export const DEFAULT_ACTION_TIMEOUT_MS = 10000;
+export const DEFAULT_WAIT_STRATEGY: WaitStrategy = "domcontentloaded";
+export const DEFAULT_STEALTH_PROFILE: StealthProfile = "normal";
 export const MAX_GUARDED_REQUESTS = 1024;
 export const MAX_EXTRACT_NODES = 50000;
 export const GUARD_SETTLE_MS = 100;

@@ -1,4 +1,5 @@
 import type { Browser } from "playwright-core";
+import chalk from "chalk";
 import { validateTargetUrl } from "./policy.js";
 import { ALLOW_UNSAFE_OPTIONS, DENIED_BROWSER_ARG_FLAGS, DENIED_FIREFOX_PREF_KEYS, DENIED_FIREFOX_PREF_PREFIXES } from "./config.js";
 import type { BrowserLaunchInput, CamoufoxOptions, CommonBrowserInput, HeadlessMode, ProxyConfig, SupportedOs } from "./types.js";
@@ -21,6 +22,14 @@ export async function validateBrowserOptionsInput(input: BrowserLaunchInput): Pr
   await validateProxyConfig(input.proxy);
 
   if (!ALLOW_UNSAFE_OPTIONS && hasUnsafeBrowserOptions(input.args, input.firefox_user_prefs, input.exclude_addons)) {
+    const requestedOptions = [
+      input.args?.length ? "args" : undefined,
+      Object.keys(input.firefox_user_prefs ?? {}).length > 0 ? "firefox_user_prefs" : undefined,
+      input.exclude_addons?.length ? "exclude_addons" : undefined,
+    ].filter((option): option is string => option !== undefined);
+    console.error(chalk.yellow(
+      `[Camoufox] Unsafe browser option warning: ${requestedOptions.join(", ")} requires CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1.`,
+    ));
     throw new Error(
       "Unsafe browser options are disabled by server policy. Set CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 to allow args, firefox_user_prefs, or exclude_addons.",
     );

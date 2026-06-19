@@ -6,7 +6,7 @@ All tools share the browser and navigation parameters below:
 |-----------|------|---------|-------------|
 | `url` | string | required | The URL to navigate to |
 | `os` | enum | random | Operating system to spoof: 'windows', 'macos', or 'linux' |
-| `waitStrategy` | enum | 'load' | Wait strategy: 'domcontentloaded', 'load', or 'networkidle' |
+| `waitStrategy` | enum | 'domcontentloaded' | Wait strategy: 'domcontentloaded', 'load', or 'networkidle' |
 | `timeout` | number | 60000 | Page load timeout in milliseconds (5000-300000) |
 | `humanize` | boolean | true | Enable realistic cursor movements |
 | `locale` | string | system default | Browser locale (e.g., 'en-US') |
@@ -14,10 +14,10 @@ All tools share the browser and navigation parameters below:
 | `block_webrtc` | boolean | true | Block WebRTC entirely for enhanced privacy (triggers: "private", "stealth", "WebRTC leak") |
 | `proxy` | string/object | none | HTTP(S) proxy configuration. Proxy servers are checked against the same URL policy as page requests |
 | `enable_cache` | boolean | false | Cache pages and requests (uses more memory) |
-| `firefox_user_prefs` | object | none | Custom Firefox user preferences. Disabled unless `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` |
-| `exclude_addons` | array | none | List of default addons to exclude. Disabled unless `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` |
+| `firefox_user_prefs` | object | none | Custom Firefox user preferences. Rejected unless `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`; denylisted prefs are always rejected |
+| `exclude_addons` | array | none | List of default addons to exclude. Rejected unless `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` |
 | `window` | array | random | Fixed window size [width, height] instead of random |
-| `args` | array | none | Additional browser command-line arguments. Disabled unless `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` |
+| `args` | array | none | Additional browser command-line arguments. Rejected unless `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`; denylisted args are always rejected |
 | `block_images` | boolean | false | Block all images for faster loading (triggers: "fast", "quick", "no images", "text only") |
 | `block_webgl` | boolean | false | Block WebGL to prevent fingerprinting (triggers: "maximum privacy", "block tracking") |
 | `disable_coop` | boolean | false | Disable Cross-Origin-Opener-Policy for iframe interaction (triggers: "iframe", "embedded content") |

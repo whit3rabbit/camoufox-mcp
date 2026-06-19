@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Browser, Response } from "playwright-core";
 import chalk from "chalk";
 import { validateTargetUrl } from "./policy.js";
-import { DEFAULT_ACTION_TIMEOUT_MS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, MAX_SESSIONS, SESSION_CLOSE_GRACE_MS, SESSION_TTL_MS } from "./config.js";
+import { DEFAULT_ACTION_TIMEOUT_MS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, DEFAULT_WAIT_STRATEGY, MAX_SESSIONS, SESSION_CLOSE_GRACE_MS, SESSION_TTL_MS } from "./config.js";
 import type { SessionRecord, SlotRelease, WaitStrategy } from "./types.js";
 import type { SessionActionToolInput, SessionCloseToolInput, SessionNavigateToolInput, SessionResumeToolInput, SessionSnapshotToolInput, SessionStartToolInput } from "./schemas.js";
 import { acquireBrowserSlot, browserContextOptions, buildCamoufoxOptions, closeBrowser, installRequestGuard, launchCamoufoxBrowser, runGuardedPageRead, settleAndAssertSafe, trackBrowser, validateBrowserOptionsInput } from "./browser-runtime.js";
@@ -179,7 +179,7 @@ export async function handleSessionStart(input: SessionStartToolInput) {
     await validateBrowserOptionsInput(effectiveInput);
     release = await acquireBrowserSlot();
     const selectedOS = selectOperatingSystem(effectiveInput.os);
-    const waitStrategy = effectiveInput.waitStrategy ?? "load";
+    const waitStrategy = effectiveInput.waitStrategy ?? DEFAULT_WAIT_STRATEGY;
     const headlessMode = defaultHeadlessMode(effectiveInput.headless);
 
     browser = await launchCamoufoxBrowser(buildCamoufoxOptions(effectiveInput, selectedOS, headlessMode));

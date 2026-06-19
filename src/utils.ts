@@ -1,4 +1,4 @@
-import { MAX_DIAGNOSTIC_TEXT_CHARS, SUPPORTED_OSES } from "./config.js";
+import { DEFAULT_STEALTH_PROFILE, MAX_DIAGNOSTIC_TEXT_CHARS, SUPPORTED_OSES } from "./config.js";
 import type { BrowserLaunchInput, ProxyConfig, StealthProfile, SupportedOs } from "./types.js";
 
 export function describeError(error: unknown): string {
@@ -114,7 +114,7 @@ export function defaultHeadlessMode(headless: boolean | "virtual" | undefined): 
 }
 
 export function applyStealthProfile<T extends BrowserLaunchInput>(input: T): T {
-  const profile = input.stealthProfile ?? "normal";
+  const profile = input.stealthProfile ?? DEFAULT_STEALTH_PROFILE;
   const defaults: BrowserLaunchInput = {
     humanize: true,
     geoip: true,

@@ -67,6 +67,9 @@ setTimeout(() => {
   for (const line of response.split('\n').filter(Boolean)) {
     try {
       const msg = JSON.parse(line);
+      if (msg.id === 1) {
+        console.log(JSON.stringify(msg.result?.capabilities?.extensions?.['camoufox-mcp'] ?? msg, null, 2));
+      }
       if (msg.id === 2 || msg.id === 3) {
         console.log(JSON.stringify(msg.result?.structuredContent ?? msg, null, 2));
       }
@@ -115,6 +118,8 @@ Confirm opt-in with `camoufox_status` before sending unsafe options. The status 
 }
 ```
 
+The initialize response also advertises the active policy at `result.capabilities.extensions["camoufox-mcp"].policy`.
+
 ## Hard-Site Payload Template
 
 This is a starting point for local retesting, not a guaranteed bypass.
@@ -132,11 +137,10 @@ This is a starting point for local retesting, not a guaranteed bypass.
     "media.navigator.enabled": false,
     "privacy.resistFingerprinting": true,
     "network.http.altsvc.enabled": false,
-    "dom.serviceWorkers.enabled": false,
     "dom.battery.enabled": false,
     "intl.accept_languages": "en-US,en;q=0.9"
   }
 }
 ```
 
-If this returns an unsafe-options error, either remove `firefox_user_prefs` or restart the MCP server with the explicit unsafe env var.
+If this returns an unsafe-options error, either remove `firefox_user_prefs` or restart the MCP server with the explicit unsafe env var. If it reports a denied unsafe pref, remove that specific pref; denied prefs are rejected even when unsafe options are enabled.

@@ -24,6 +24,8 @@ The server applies deny-by-default policy checks before and during browsing:
 
 URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, link-local addresses, multicast addresses, reserved/special-purpose IPv4 and IPv6 ranges, and hosts that resolve to those addresses. The server checks the initial URL, proxy server URL, final navigation URL, intercepted browser requests, and WebSocket requests. It does not make traffic anonymous unless you configure an allowed upstream proxy.
 
+When unsafe browser options are sent without `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`, the server rejects the request and logs a warning naming the rejected option family. Denied unsafe prefs and args remain rejected even when unsafe options are enabled.
+
 ### Network sandbox posture
 
 The server blocks localhost, private, link-local, reserved, and unsafe browser request URLs at the application layer. This is best-effort protection because browser networking and DNS resolution can still create TOCTOU risk.
