@@ -38,6 +38,7 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 Use this when `plugins/camoufox/skills/camoufox/` or bundled plugin metadata changes and the OpenClaw package needs a new release.
 
 - ClawHub package: [@whit3rabbit/camoufox-mcp](https://clawhub.ai/packages/%40whit3rabbit%2Fcamoufox-mcp). OpenClaw install spec: `clawhub:@whit3rabbit/camoufox-mcp`.
+- NPM, Docker, and GitHub releases are published by CI from `v*` tags. Do not run `npm publish` locally. Bump versions, commit, tag `v<version>`, push `main` and the tag, wait for CI to publish npm, then publish the matching ClawHub package.
 - Keep `plugins/camoufox/openclaw.plugin.json`, `plugins/camoufox/package.json`, `.codex-plugin/plugin.json`, and `.claude-plugin/plugin.json` versions aligned with the repo release version.
 - Do not publish directly from `plugins/camoufox/` if it contains generated `reports/`, `skills/camoufox/evals/`, or `skills/camoufox-workspace/`. Build a clean staging directory and publish that instead.
 - Validate before publishing. `clawhub package validate` writes `reports/` into the source folder, so validate first, then rebuild the clean staging directory for the final dry-run and publish.
