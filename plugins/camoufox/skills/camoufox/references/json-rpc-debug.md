@@ -122,14 +122,13 @@ The initialize response also advertises the active policy at `result.capabilitie
 
 ## Hard-Site Payload Template
 
-This is a starting point for local retesting, not a guaranteed bypass.
+This is a starting point for local retesting, not a guaranteed bypass. Leave `locale` unset unless the user or operator explicitly asks for locale testing. If you set it, match the approved target locale and align `intl.accept_languages` to the same locale family.
 
 ```json
 {
   "url": "https://www.reddit.com/",
   "stealthProfile": "normal",
   "os": "windows",
-  "locale": "en-US",
   "waitStrategy": "domcontentloaded",
   "timeout": 30000,
   "firefox_user_prefs": {
@@ -137,8 +136,18 @@ This is a starting point for local retesting, not a guaranteed bypass.
     "media.navigator.enabled": false,
     "privacy.resistFingerprinting": true,
     "network.http.altsvc.enabled": false,
-    "dom.battery.enabled": false,
-    "intl.accept_languages": "en-US,en;q=0.9"
+    "dom.battery.enabled": false
+  }
+}
+```
+
+Approved locale override syntax:
+
+```json
+{
+  "locale": "<approved-locale>",
+  "firefox_user_prefs": {
+    "intl.accept_languages": "<approved-locale>,<base-language>;q=0.9"
   }
 }
 ```

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { NetworkSandboxMode, NetworkSecurityStatus, StealthProfile, SupportedOs, WaitStrategy } from "./types.js";
 
-export const SERVER_VERSION = "2.1.4";
+export const SERVER_VERSION = "2.1.5";
 export const DEFAULT_MAX_CHARS = 30000;
 export const MAX_MAX_CHARS = 200000;
 export const DEFAULT_MAX_ELEMENTS = 100;

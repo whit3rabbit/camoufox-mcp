@@ -196,7 +196,8 @@ This is carried-over tuning guidance, not a fresh verification claim. Re-test wi
 
 For Reddit and similarly strict sites:
 
-- Prefer `stealthProfile: "normal"`, `os: "windows"`, `locale: "en-US"`.
+- Prefer `stealthProfile: "normal"` and `os: "windows"`.
+- Leave `locale` unset unless the user or operator explicitly asks for locale testing. If you set it, match the approved target locale and align `intl.accept_languages` to the same locale family.
 - Keep the default `waitStrategy: "domcontentloaded"`; it's safer for sites that hold connections open or redirect after the first HTML.
 - Avoid `stealthProfile: "privacy"` if WebGL blocking itself seems to trigger detection.
 - `firefox_user_prefs` requires `unsafeOptionsAllowed: true`. Some prefs (e.g. `dom.serviceWorkers.enabled`) are denied even then; remove any pref the server rejects.
@@ -208,14 +209,23 @@ Opt-in tuning payload:
   "url": "https://www.reddit.com/",
   "stealthProfile": "normal",
   "os": "windows",
-  "locale": "en-US",
   "timeout": 30000,
   "firefox_user_prefs": {
     "media.navigator.enabled": false,
     "privacy.resistFingerprinting": true,
     "network.http.altsvc.enabled": false,
-    "dom.battery.enabled": false,
-    "intl.accept_languages": "en-US,en;q=0.9"
+    "dom.battery.enabled": false
+  }
+}
+```
+
+If locale testing is explicitly approved, add matching values such as:
+
+```json
+{
+  "locale": "<approved-locale>",
+  "firefox_user_prefs": {
+    "intl.accept_languages": "<approved-locale>,<base-language>;q=0.9"
   }
 }
 ```
