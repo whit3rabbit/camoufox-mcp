@@ -1,6 +1,6 @@
 {
   "name": "@whit3rabbit/camoufox-mcp",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "Camoufox MCP browser automation bundle for OpenClaw.",
   "type": "module",
   "license": "MIT",

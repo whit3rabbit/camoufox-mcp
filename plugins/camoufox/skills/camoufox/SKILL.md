@@ -245,7 +245,7 @@ If the host blocks direct config edits, do not patch protected files. Use the ho
 hermes mcp add camoufox --command npx --env CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 --args -y camoufox-mcp-server@latest
 ```
 
-Hermes `--env` values are `KEY=VALUE`. `--args` must be the last option and receives plain argv tokens, not a JSON array string. If repairing `~/.hermes/config.yaml`, the entry should look like this:
+Hermes `--env` values are `KEY=VALUE`. `--args` must be the last option and receives plain argv tokens, not a JSON array string. To verify the saved MCP server entry, run `hermes mcp list`; the entry should look like this:
 
 ```yaml
 mcp_servers:
