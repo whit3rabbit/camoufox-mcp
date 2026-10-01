@@ -74,7 +74,7 @@ export async function withBrowserSlot<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export const MISSING_BROWSER_MESSAGE =
-  "Camoufox browser binary not installed. Run: npx -y camoufox-js@0.12.0 fetch (one-time ~780MB download into the shared OS cache), then retry.";
+  "Camoufox browser binary not installed. Run the pinned fetch script — `npm run fetch:camoufox` (repo checkout) or `node node_modules/camoufox-mcp-server/scripts/fetch-browser.mjs` (package install; one-time ~780MB download into the shared OS cache) — then retry. Do NOT use `npx camoufox-js fetch`: it currently installs an unreleased 152.0.4-beta.31 build that breaks this server's private-WebSocket SSRF guard.";
 
 // ponytail: preflight only; a launch-time miss after this passes stays generic. `launchPath`
 // throws when the binary is absent (same probe camoufox_status uses). The default arg keeps it

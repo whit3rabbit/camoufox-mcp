@@ -1,6 +1,6 @@
 {
     "name": "camoufox-mcp-server",
-    "version": "2.5.0",
+    "version": "2.5.1",
     "description": "MCP server for browser automation using Camoufox - a privacy-focused Firefox fork with advanced anti-detection features",
     "keywords": [
         "mcp",
@@ -21,6 +21,7 @@
     },
     "files": [
         "dist/**/*",
+        "scripts/fetch-browser.mjs",
         "docs/**/*",
         "plugins/camoufox/.claude-plugin/**/*",
         "plugins/camoufox/.codex-plugin/**/*",
@@ -51,7 +52,7 @@
         "start": "node dist/index.js",
         "dev": "tsc --watch",
         "lint": "eslint src/",
-        "fetch:camoufox": "npx -y camoufox-js@0.12.0 fetch",
+        "fetch:camoufox": "node scripts/fetch-browser.mjs",
         "doctor": "node scripts/doctor.mjs",
         "test": "npm run test:local",
         "test:unit": "npm run build && node tests/unit_policy.mjs && node tests/unit_sequence.mjs && node tests/unit_sqlite_shim.mjs && node tests/unit_browser_preflight.mjs",
@@ -69,7 +70,7 @@
     },
     "overrides": {
         "adm-zip": "^0.6.0",
-        "js-yaml": "4.3.1",
+        "js-yaml": "4.3.2",
         "playwright-core": "1.59.0"
     },
     "devDependencies": {

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-10-01
+
+### Fixed
+- Security: refreshed all vulnerable transitive dependencies via `npm audit fix` (adm-zip 0.6.1, brace-expansion, browserslist, fast-uri, hono, ip-address 10.7.2, qs, @humanfs/node) and bumped the `js-yaml` override from the exact `4.3.1` pin to `4.3.2` (GHSA-2883-xcg3-v3hh) — the exact pin had been blocking the patched release, which is also why the September Dependabot PRs failed. `npm audit` is back to 0 vulnerabilities.
+
+### Changed
+- `npm run fetch:camoufox` now runs `scripts/fetch-browser.mjs`, which downloads the browser binary pinned to the verified release asset (152.0.4-beta.28) instead of whatever upstream's updater resolves. Since 2026-09-24, `camoufox-js fetch` installs an unreleased 152.0.4-beta.31 browser from daijro/camoufox's `font-bundle-v1` build-input release (its own notes say "Nothing here is meant to be installed"), and that build silently breaks `context.routeWebSocket()` interception — the "Reject Private WebSocket" SSRF-guard test fails deterministically on playwright-core 1.59.0 and 1.63.0, while beta.28 passes. The missing-binary error message now points at the pinned script and warns against `npx camoufox-js fetch`.
+
 ## [2.5.0] - 2026-08-07
 
 ### Added

@@ -107,7 +107,11 @@ hermes mcp test camoufox
 ```
 
 First `browse` on a fresh machine needs the browser binary once (~780MB); if a call
-reports it is missing, run `npx -y camoufox-js@0.12.0 fetch` and retry (do not omit the `@0.12.0` version pin).
+reports it is missing, run the pinned fetch script and retry: `npm run fetch:camoufox`
+(repo checkout) or `node node_modules/camoufox-mcp-server/scripts/fetch-browser.mjs`
+(package install). Do not use `npx camoufox-js fetch`: since 2026-09-24 it installs an
+unreleased 152.0.4-beta.31 browser from upstream's `font-bundle-v1` build-input release,
+and that build breaks the server's private-WebSocket SSRF guard.
 
 Restart Hermes from a separate terminal after changing MCP config. Hermes namespaces MCP
 tools as `mcp_camoufox_<tool>` (single underscore, e.g. `mcp_camoufox_browse`,
@@ -195,7 +199,7 @@ Use Camoufox to browse https://developer.mozilla.org with images blocked and Web
 
 ## Versioning
 
-`camoufox-js` (0.12.0) and `playwright-core` (1.59.0) are pinned, fetching the Camoufox 152.0.4-beta.28 browser build. `playwright-core` is a **direct** pinned dependency (not just an `overrides` entry) because npm `overrides` only bind the root project: without a direct pin, `npx`/global installs let `camoufox-js`'s peer float `playwright-core` to the latest, and `playwright-core` 1.60+ is incompatible with the Camoufox browser (1.60 breaks a navigation guard; 1.61 sends an `isMobile` viewport option Firefox/Camoufox rejects). The pins are the newest combination that passes the full test suite. Run `npm run doctor` to check them end-to-end, and do not loosen them without re-running `npm run test:all`.
+`camoufox-js` (0.12.0) and `playwright-core` (1.59.0) are pinned, fetching the Camoufox 152.0.4-beta.28 browser build. `playwright-core` is a **direct** pinned dependency (not just an `overrides` entry) because npm `overrides` only bind the root project: without a direct pin, `npx`/global installs let `camoufox-js`'s peer float `playwright-core` to the latest, and `playwright-core` 1.60+ is incompatible with the Camoufox browser (1.60 breaks a navigation guard; 1.61 sends an `isMobile` viewport option Firefox/Camoufox rejects). The pins are the newest combination that passes the full test suite. Run `npm run doctor` to check them end-to-end, and do not loosen them without re-running `npm run test:all`. The browser download itself is pinned by `scripts/fetch-browser.mjs` (via `npm run fetch:camoufox`): plain `camoufox-js fetch` currently resolves to an unreleased 152.0.4-beta.31 build that fails the suite's private-WebSocket rejection test on both playwright-core 1.59.0 and 1.63.0.
 
 ## Documentation
 
