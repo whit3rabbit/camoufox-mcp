@@ -1,15 +1,19 @@
 import { Camoufox, type LaunchOptions } from "camoufox-js";
-import { launchPath } from "camoufox-js/dist/pkgman.js";
 import type { Browser, BrowserContext, Page, Response, Route } from "playwright-core";
 import chalk from "chalk";
 import { parseAndValidateBrowserRequestUrl, validateBrowserRequestUrl, validateTargetUrl } from "./policy.js";
 import { DEFAULT_WAIT_STRATEGY, GUARD_SETTLE_MS, LAUNCH_TIMEOUT_MS, MAX_CONCURRENCY, MAX_GUARDED_REQUESTS, MAX_QUEUE, QUEUE_TIMEOUT_MS } from "./config.js";
 import { createDiagnosticsCollector } from "./diagnostics.js";
 import { browserContextOptions, buildCamoufoxOptions, validateCommonBrowserInput } from "./browser-options.js";
+import { assertBrowserBinaryAvailable } from "./browser-preflight.js";
+import { probeBrowserBinary } from "./browser-preflight.js";
+import { BROWSER_COMPATIBILITY, EXPECTED_BROWSER_BUILD } from "./browser-build.js";
+import { launchCompatibilityBrowser } from "./browser-compatibility.js";
 import type { BrowserInstance, BrowserOperationContext, CamoufoxOptions, CommonBrowserInput, PendingBrowse, RequestGuard, SlotRelease } from "./types.js";
 import { applyStealthProfile, defaultHeadlessMode, describeError, getProxySecrets, getProxyServer, redactUrl, selectOperatingSystem, withTimeout } from "./utils.js";
 
 export { browserContextOptions, buildCamoufoxOptions, validateBrowserOptionsInput } from "./browser-options.js";
+export { MISSING_BROWSER_MESSAGE, assertBrowserBinaryAvailable } from "./browser-preflight.js";
 
 let shuttingDown = false;
 let activeBrowses = 0;
@@ -73,23 +77,13 @@ export async function withBrowserSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export const MISSING_BROWSER_MESSAGE =
-  "Camoufox browser binary not installed. Run the pinned fetch script — `npm run fetch:camoufox` (repo checkout) or `node node_modules/camoufox-mcp-server/scripts/fetch-browser.mjs` (package install; one-time ~780MB download into the shared OS cache) — then retry. Do NOT use `npx camoufox-js fetch`: it currently installs an unreleased 152.0.4-beta.31 build that breaks this server's private-WebSocket SSRF guard.";
-
-// ponytail: preflight only; a launch-time miss after this passes stays generic. `launchPath`
-// throws when the binary is absent (same probe camoufox_status uses). The default arg keeps it
-// injectable so the unit test can drive both branches without a real 780MB download.
-export function assertBrowserBinaryAvailable(probe: () => unknown = launchPath): void {
-  try {
-    probe();
-  } catch {
-    throw new Error(MISSING_BROWSER_MESSAGE);
-  }
-}
-
 export async function launchCamoufoxBrowser(options: CamoufoxOptions): Promise<Browser> {
+  // Both one-shot tools and sessions must reject a missing cache before Camoufox can fetch it.
+  assertBrowserBinaryAvailable();
   let timedOut = false;
-  const launchPromise = Camoufox<undefined, Browser>(options as LaunchOptions);
+  const launchPromise = BROWSER_COMPATIBILITY
+    ? launchCompatibilityBrowser(options, probeBrowserBinary(), Number(EXPECTED_BROWSER_BUILD.version.split(".")[0]))
+    : Camoufox<undefined, Browser>(options as LaunchOptions);
   launchPromise.then(
     (browser) => {
       if (timedOut) {
@@ -204,8 +198,6 @@ export async function runBrowserOperation<T>(
   const targetUrl = await validateCommonBrowserInput(effectiveInput);
 
   return withBrowserSlot(async () => {
-    assertBrowserBinaryAvailable();
-
     const selectedOS = selectOperatingSystem(effectiveInput.os);
     const waitStrategy = effectiveInput.waitStrategy ?? DEFAULT_WAIT_STRATEGY;
     const headlessMode = defaultHeadlessMode(effectiveInput.headless);

@@ -66,6 +66,14 @@ export interface StatusPayload {
   browser: "camoufox";
   browserAvailable: boolean;
   browserPath?: string;
+  browserCompatibility: {
+    mode: "default" | "compatibility";
+    expectedVersion: string;
+    installedVersion?: string;
+    launcher: string;
+    worldIsolationEnabled: boolean;
+    warning?: string;
+  };
   headlessMode: HeadlessMode;
   platform: NodeJS.Platform;
   activeBrowsers: number;

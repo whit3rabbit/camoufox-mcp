@@ -222,6 +222,15 @@ export async function handleSessionStart(input: SessionStartToolInput) {
       closed: false,
     };
 
+    // Actions and page scripts can navigate without navigateSession, so response
+    // metadata and CAPTCHA status must follow the current main-frame document.
+    page.on("response", (response) => {
+      const request = response.request();
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        session.lastNavigationResponse = response;
+      }
+    });
+
     sessions.set(id, session);
     browser = undefined;
     release = undefined;

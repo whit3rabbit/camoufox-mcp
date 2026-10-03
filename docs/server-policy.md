@@ -6,6 +6,8 @@ The server applies deny-by-default policy checks before and during browsing:
 |----------|---------|-------------|
 | `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` | unset | Set to `1` to allow `args`, `firefox_user_prefs`, and `exclude_addons` |
 | `CAMOUFOX_MCP_ALLOW_EVALUATE` | unset | Set to `1` to allow `browse_sequence` evaluate actions. This is unsafe because page JavaScript can read page state |
+| `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` | unset | Set to `1` during installation and startup to use beta.33 with page/iframe WebSocket routing and reduced stealth relative to upstream defaults |
+| `CAMOUFOX_INSTALL_DIR` | OS browser cache | Use the same directory during installation and startup; compatibility otherwise uses a separate sibling cache |
 | `CAPTCHA_AUTONOMOUS` | unset | Set to `true` to mark challenge responses as LLM-assisted and return provider-specific `challengePlaybook` context when known |
 | `CAMOUFOX_MCP_NETWORK_SANDBOX` | unset | Set to `1` only after configuring container, VM, or firewall egress controls |
 | `CAMOUFOX_MCP_REQUIRE_NETWORK_SANDBOX` | unset | Set to `1` to refuse startup unless `CAMOUFOX_MCP_NETWORK_SANDBOX=1` is also set |
@@ -23,14 +25,16 @@ The server applies deny-by-default policy checks before and during browsing:
 | `CAMOUFOX_MCP_MAX_DIAGNOSTIC_TEXT_CHARS` | `2000` | Maximum diagnostic text characters per entry, clamped to 100-20000 |
 | `CAMOUFOX_MCP_NO_SQLITE_SHIM` | unset | Set to `1` to load the native `better-sqlite3` module instead of the built-in `node:sqlite` shim (see [troubleshooting](troubleshooting.md)) |
 
-URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, link-local addresses, multicast addresses, reserved/special-purpose IPv4 and IPv6 ranges, and hosts that resolve to those addresses. The server checks the initial URL, proxy server URL, final navigation URL, intercepted browser requests, and WebSocket requests. It does not make traffic anonymous unless you configure an allowed upstream proxy.
+URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, link-local addresses, multicast addresses, reserved/special-purpose IPv4 and IPv6 ranges, and hosts that resolve to those addresses. The server checks the initial URL, proxy server URL, final navigation URL, intercepted browser requests, and intercepted page/iframe WebSocket requests. It does not make traffic anonymous unless you configure an allowed upstream proxy.
 
 When unsafe browser options are sent without `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`, the server rejects the request and logs a warning naming the rejected option family. Denied unsafe prefs and args remain rejected even when unsafe options are enabled.
 
 ### Network sandbox posture
 
-The server blocks localhost, private, link-local, reserved, and unsafe browser request URLs at the application layer. This is best-effort protection because browser networking and DNS resolution can still create TOCTOU risk.
+The server blocks localhost, private, link-local, reserved, and unsafe browser request URLs at the application layer. This is best-effort protection: dedicated-worker WebSockets evade frame-based routing in both browser modes, and browser networking and DNS resolution can still create TOCTOU risk. See [browser compatibility evidence](browser-compatibility.md#remaining-network-and-output-limits).
 
 For untrusted browsing, run the server behind container, VM, or host firewall egress rules that deny private, loopback, link-local, metadata, multicast, and reserved ranges. Docker/container detection in `camoufox_status` is only an environment signal, not proof that egress filtering is enforced.
 
 Set `CAMOUFOX_MCP_NETWORK_SANDBOX=1` only after configuring those controls. Set `CAMOUFOX_MCP_REQUIRE_NETWORK_SANDBOX=1` to refuse startup unless the deployment explicitly declares sandboxing.
+
+`camoufox_status.browserCompatibility` reports the selected mode, expected and installed versions, launcher, and world-isolation warning. Both supported modes currently report `worldIsolationEnabled: false`. See [browser compatibility](browser-compatibility.md) for setup and evidence.

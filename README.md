@@ -106,12 +106,14 @@ hermes mcp list
 hermes mcp test camoufox
 ```
 
-First `browse` on a fresh machine needs the browser binary once (~780MB); if a call
+First `browse` on a fresh machine needs the browser binary once; download and storage
+requirements vary by platform and build. If a call
 reports it is missing, run the pinned fetch script and retry: `npm run fetch:camoufox`
-(repo checkout) or `node node_modules/camoufox-mcp-server/scripts/fetch-browser.mjs`
-(package install). Do not use `npx camoufox-js fetch`: since 2026-09-24 it installs an
-unreleased 152.0.4-beta.31 browser from upstream's `font-bundle-v1` build-input release,
-and that build breaks the server's private-WebSocket SSRF guard.
+(repo checkout). After release 2.6.0 is published, npx installs can use
+`npx --yes --package camoufox-mcp-server@2.6.0 camoufox-mcp-fetch`.
+Global installs of 2.6.0 provide `camoufox-mcp-fetch` and `camoufox-mcp-doctor`.
+Do not use `camoufox-js fetch`: its release selection can install a build that
+bypasses page WebSocket interception.
 
 Restart Hermes from a separate terminal after changing MCP config. Hermes namespaces MCP
 tools as `mcp_camoufox_<tool>` (single underscore, e.g. `mcp_camoufox_browse`,
@@ -194,16 +196,27 @@ Use Camoufox to browse https://developer.mozilla.org with images blocked and Web
 
 ## Requirements
 
-- Node.js 22 or higher
+- Published default runtime: Node.js 22.0 or higher
+- Repository builds and compatibility mode: Node.js 22.15 or higher, with `npm install --include=optional`
 - Python 3.x for running tests
 
 ## Versioning
 
-`camoufox-js` (0.12.0) and `playwright-core` (1.59.0) are pinned, fetching the Camoufox 152.0.4-beta.28 browser build. `playwright-core` is a **direct** pinned dependency (not just an `overrides` entry) because npm `overrides` only bind the root project: without a direct pin, `npx`/global installs let `camoufox-js`'s peer float `playwright-core` to the latest, and `playwright-core` 1.60+ is incompatible with the Camoufox browser (1.60 breaks a navigation guard; 1.61 sends an `isMobile` viewport option Firefox/Camoufox rejects). The pins are the newest combination that passes the full test suite. Run `npm run doctor` to check them end-to-end, and do not loosen them without re-running `npm run test:all`. The browser download itself is pinned by `scripts/fetch-browser.mjs` (via `npm run fetch:camoufox`): plain `camoufox-js fetch` currently resolves to an unreleased 152.0.4-beta.31 build that fails the suite's private-WebSocket rejection test on both playwright-core 1.59.0 and 1.63.0.
+The default pins are `camoufox-js` 0.12.0, `playwright-core` 1.59.0, and Camoufox 152.0.4-beta.28. Keep `playwright-core` as a direct pinned dependency: npm `overrides` alone do not pin it for `npx` or global installs. Run `npm run doctor` to verify the selected build and a real browser launch.
+
+Camoufox 156.0.1-beta.33 is available through opt-in compatibility mode. It restores page and iframe WebSocket interception by disabling the newer browser's world isolation, reducing stealth compared with its upstream defaults. The beta.28 default predates that isolation change. Worker WebSockets evade interception in both modes, so untrusted browsing needs network egress controls. See [browser compatibility setup and evidence](docs/browser-compatibility.md) before enabling it.
+
+| Environment variable | Default | Effect |
+| --- | --- | --- |
+| `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` | Unset | Set to `1` during installation and startup to select beta.33 with reduced stealth. |
+| `CAMOUFOX_INSTALL_DIR` | OS cache, separate `camoufox-compatibility` cache when opted in | Override the browser directory; use the same value during installation and startup. |
+
+Use `npm run fetch:camoufox` for tagged downloads with SHA-256 checks. The shared [browser manifest](browser-builds.json) pins both modes. Avoid `camoufox-js fetch`, whose release selection can install a build that bypasses WebSocket interception.
 
 ## Documentation
 
 - [Configuration for AI assistants](docs/configuration.md)
+- [Browser compatibility](docs/browser-compatibility.md)
 - [Usage examples](docs/examples.md)
 - [Tool parameters](docs/tool-parameters.md)
 - [Server policy](docs/server-policy.md)

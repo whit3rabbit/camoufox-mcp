@@ -82,11 +82,13 @@ NODESCRIPT
 
 ## Test a Local Checkout
 
-Build first:
+Use Node >=22.15 for repository builds, including the optional launcher for its TypeScript declarations:
 
 ```bash
-npm install
+npm install --include=optional
 npm run build
+npm run fetch:camoufox
+npm run doctor
 ```
 
 Then replace the spawn command above with:
@@ -98,6 +100,12 @@ const p = spawn('node', ['dist/index.js'], {
   env: { ...process.env }
 });
 ```
+
+## Test Browser Compatibility Mode
+
+With the optional launcher installed on Node >=22.15, run `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npm run fetch:camoufox` and the same command prefix for doctor. Add `CAMOUFOX_MCP_BROWSER_COMPATIBILITY: '1'` to the spawned process environment. Use the same `CAMOUFOX_INSTALL_DIR` if you override the separate compatibility cache.
+
+Inspect `camoufox_status.browserCompatibility` for mode, expected/installed versions, launcher, and warning. Both modes report `worldIsolationEnabled: false`. Compatibility restores page/iframe WebSocket interception by disabling the newer browser's isolation; worker sockets remain outside that interception. Keep actual network egress controls for untrusted pages.
 
 ## Opt In to Unsafe Browser Options
 

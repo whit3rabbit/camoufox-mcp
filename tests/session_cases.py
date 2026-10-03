@@ -53,6 +53,59 @@ class SessionCases:
             assert self.get_tool_payload(close_response)["closed"] is True
         print("CallTool session flow and max sessions test passed.")
 
+    def test_call_tool_session_tracks_action_navigation_response(self):
+        print("--- Running Test: Call Tool - Session Action Navigation Response ---")
+        start_response = self._run_tool("browse_session_start", {}, timeout=90)
+        session_id = self.get_tool_payload(start_response)["sessionId"]
+        try:
+            html = """<!doctype html>
+<html>
+<body>
+  <a id="missing" href="/missing-page">Missing page</a>
+  <iframe src="/missing-frame"></iframe>
+</body>
+</html>"""
+            navigate = self._run_tool("browse_session_navigate", {
+                "sessionId": session_id,
+                "url": self._fixture_url(html),
+                "waitStrategy": "load",
+                "maxChars": 1000
+            }, timeout=90)
+            navigate_payload = self.get_tool_payload(navigate)
+            assert navigate_payload["status"] == 200, navigate_payload
+
+            before = self._run_tool("browse_session_snapshot", {"sessionId": session_id}, timeout=90)
+            assert self.get_tool_payload(before)["status"] == 200, before
+
+            action = self._run_tool("browse_session_action", {
+                "sessionId": session_id,
+                "action": {"type": "click", "selector": "#missing"},
+                "maxChars": 1000,
+                "maxElements": 20
+            }, timeout=90)
+            assert self.get_tool_payload(action)["action"]["status"] == "ok", action
+            # DOM activation can return before navigation, so wait for content
+            # unique to the new document before checking response metadata.
+            action = self._run_tool("browse_session_action", {
+                "sessionId": session_id,
+                "action": {"type": "waitFor", "selector": "h1", "state": "visible", "timeout": 5000},
+                "maxChars": 1000,
+                "maxElements": 20
+            }, timeout=90)
+            action_payload = self.get_tool_payload(action)
+            snapshot = action_payload["snapshot"]
+            assert snapshot["url"].endswith("/missing-page"), snapshot
+            assert snapshot["status"] == 404, snapshot
+            assert snapshot["contentType"] == "text/html;charset=utf-8", snapshot
+            assert "Error response" in snapshot["text"], snapshot
+
+            after = self._run_tool("browse_session_snapshot", {"sessionId": session_id}, timeout=90)
+            assert self.get_tool_payload(after)["status"] == 404, after
+        finally:
+            close_response = self._run_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+            assert self.get_tool_payload(close_response)["closed"] is True
+        print("CallTool session action navigation response test passed.")
+
     def test_call_tool_session_serializes_overlapping_operations(self):
         print("--- Running Test: Call Tool - Session Serializes Overlapping Operations ---")
         start_response = self._run_tool("browse_session_start", {}, timeout=90)

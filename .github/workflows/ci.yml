@@ -15,11 +15,18 @@ env:
 
 jobs:
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (Node ${{ matrix.node-version }}, ${{ matrix.browser-mode }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22.x, 24.x]
+        browser-mode: [default, compatibility]
+    env:
+      CAMOUFOX_MCP_BROWSER_COMPATIBILITY: ${{ matrix.browser-mode == 'compatibility' && '1' || '0' }}
     
     steps:
     - uses: actions/checkout@v7
@@ -30,17 +37,26 @@ jobs:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
     
-    - name: Install dependencies
-      run: npm ci
+    - name: Check release version synchronization
+      run: node tests/check_release_versions.mjs
+
+    - name: Install dependencies including the compatibility launcher
+      run: npm ci --include=optional
+
+    - name: Install Firefox and virtual-display dependencies
+      run: |
+        node node_modules/playwright-core/cli.js install-deps firefox
+        sudo apt-get install -y --no-install-recommends \
+          xauth libnss3 libdbus-glib-1-2 libpci3 libxss1 libxtst6
     
     - name: Setup Python
       uses: actions/setup-python@v6
       with:
         python-version: '3.x'
     
-    - name: Run all local tests
+    - name: Run all local tests (${{ matrix.browser-mode }})
       run: npm run test:all
-      timeout-minutes: 10
+      timeout-minutes: 25
 
   build-and-publish-npm:
     name: Build and Publish to NPM
@@ -187,10 +203,27 @@ jobs:
         context: .
         platforms: linux/amd64
         push: ${{ github.event_name != 'pull_request' }}
+        load: ${{ github.event_name == 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Setup Python for Docker runtime tests
+      if: github.event_name == 'pull_request'
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.x'
+
+    - name: Test the built Docker image
+      if: github.event_name == 'pull_request'
+      timeout-minutes: 15
+      env:
+        TEST_IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+      run: |
+        IFS= read -r test_image <<< "$TEST_IMAGE_TAGS"
+        PYTHONDONTWRITEBYTECODE=1 python3 tests/test_client.py \
+          --mode docker --image-name "$test_image" --docker-platform linux/amd64
 
   release:
     name: Create Release

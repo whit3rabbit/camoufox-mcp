@@ -53,10 +53,10 @@ export async function extractLinks(
       }
 
       function textOf(element: Element): string {
-        return (element.textContent ?? element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 500);
+        // Icon links often have empty textContent and a useful accessible label.
+        return [element.textContent, element.getAttribute("aria-label"), element.getAttribute("title")]
+          .map((value) => (value ?? "").replace(/\s+/g, " ").trim())
+          .find(Boolean)?.slice(0, 500) ?? "";
       }
 
       function isVisible(element: Element): boolean {
@@ -80,10 +80,10 @@ export async function extractLinks(
         }
 
         const visible = isVisible(link);
-        const text = textOf(link);
-        if (!text && !visible) {
+        if (!visible) {
           continue;
         }
+        const text = textOf(link);
 
         if (links.length >= maxItems) {
           truncated = true;

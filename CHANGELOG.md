@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-03
+
+### Added
+
+- Public `camoufox-mcp-fetch` and `camoufox-mcp-doctor` commands work with global and npx package installs, including hoisted dependencies.
+- Opt-in Camoufox 156.0.1-beta.33 support through `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1`, using the official `@camoufox/camoufox` 0.5.7-beta.4 launcher and fingerprint model. Requires Node.js 22.15 or higher. The default beta.28 browser and Playwright 1.59.0 pin remain unchanged.
+- Browser compatibility documentation and status fields report the selected build, launcher, and isolation posture. Compatibility mode disables world isolation to restore page/iframe WebSocket interception, exposing automation bindings to websites.
+- Shared browser manifest pins tagged downloads and SHA-256 digests for all six supported platform assets in each mode. Compatibility installs use a separate cache unless `CAMOUFOX_INSTALL_DIR` is set.
+- CI covers Node 22 and 24 in default and compatibility modes on Ubuntu 24.04, checks release-version alignment, and runs the built Docker image's browser suite on pull requests.
+
+### Fixed
+
+- Browser status and launch preflight inspect the cache without triggering upstream downloads or writing installer output to MCP stdout. Mismatched browser builds fail before launch, including session starts.
+- The pinned installer repairs missing executables despite existing version metadata. Doctor respects `CAMOUFOX_INSTALL_DIR` and skips browser launch when preflight fails.
+- Status removes expired sessions before reporting their count.
+- Sessions track main-frame navigation responses after clicks and reloads, so later snapshots use the current response metadata.
+- Link extraction returns visible links and uses accessibility labels when visible text is empty. Form extraction omits password field values.
+- Doctor and the pinned installer are shipped in the npm package and Docker runtime image.
+- The official compatibility launcher is optional, preserving the default package's Node.js 22.0 requirement under strict npm engine checks. Compatibility mode requires Node.js 22.15 or higher and the optional launcher.
+- Unsafe Firefox preference checks reject options that change world isolation or proxy policy, and check service-worker preference names regardless of case.
+- Compatibility installation repairs a missing IPv6 geolocation database, and launch checks the database for the actual exit-address family before the launcher can download implicitly.
+- The installer validates addon and geolocation assets after download, including failures swallowed by upstream download helpers.
+
+### Known limitations
+
+- Dedicated-worker WebSockets evade Playwright's frame-based routing in both beta.28 default and beta.33 compatibility mode. Untrusted browsing requires network egress controls; application checks alone do not provide a private-network sandbox.
+- Focused extractors have count and per-field limits but no shared response byte budget.
+
 ## [2.5.1] - 2026-10-01
 
 ### Fixed

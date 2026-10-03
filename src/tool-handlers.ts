@@ -1,4 +1,5 @@
-import { launchPath } from "camoufox-js/dist/pkgman.js";
+import { probeBrowserBinary } from "./browser-preflight.js";
+import { buildBrowserCompatibilityStatus } from "./browser-build.js";
 import chalk from "chalk";
 import { ALLOW_EVALUATE, ALLOW_UNSAFE_OPTIONS, CAPTCHA_AUTONOMOUS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, MAX_CONCURRENCY, MAX_QUEUE, MAX_SCREENSHOT_HEIGHT, MAX_SCREENSHOT_WIDTH, MAX_SESSIONS, SEQUENCE_TIMEOUT_MS, SERVER_VERSION, SESSION_TTL_MS, buildNetworkSecurityStatus } from "./config.js";
 import type { BrowsePayload, OutputMode, ScreenshotResult, SequencePayload, StatusPayload, SupportedOs } from "./types.js";
@@ -55,7 +56,7 @@ export function buildStatusPayload(): StatusPayload {
   let browserAvailable: boolean;
   let browserPath: string | undefined;
   try {
-    browserPath = String(launchPath());
+    browserPath = probeBrowserBinary();
     browserAvailable = true;
   } catch {
     browserAvailable = false;
@@ -66,6 +67,7 @@ export function buildStatusPayload(): StatusPayload {
     browser: "camoufox",
     browserAvailable,
     browserPath,
+    browserCompatibility: buildBrowserCompatibilityStatus(),
     headlessMode: defaultHeadlessMode(undefined),
     platform: process.platform,
     activeBrowsers: activeBrowserCount(),
