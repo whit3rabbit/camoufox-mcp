@@ -35,6 +35,7 @@ Repository builds require Node >=22.15 and the optional launcher installed with 
 ### Docker
 - Docker images are published by the GitHub Actions workflow for `linux/amd64`
 - Local image build: `docker buildx build --platform linux/amd64 -t camoufox-mcp .`
+- The browser fetch accepts an optional BuildKit `github_token` secret for GitHub API authentication. It is mounted only for that instruction; never pass it through Dockerfile `ARG` or `ENV` instructions or into browser runtime configuration.
 - `npm run test:docker` (or `./tests/run_tests.sh`) - Run tests using Docker container
 - `./tests/run_tests_local.sh` - Run tests against local server
 
@@ -98,7 +99,7 @@ For an authorized manual recovery, publish by rerunning the same `clawhub packag
 
 ## Release & Versioning
 
-Releases are tag-driven. `.github/workflows/ci.yml` runs a four-job Ubuntu 24.04 matrix: Node 22/24 with default/compatibility browser modes. Each job checks release versions, installs optional dependencies, and runs `npm run test:all`. Pull requests also build and test the `linux/amd64` Docker image. Local checks and configured coverage do not establish a successful GitHub Actions run.
+Releases are tag-driven. `.github/workflows/ci.yml` runs a four-job Ubuntu 24.04 matrix: Node 22/24 with default/compatibility browser modes. Each job checks release versions, installs optional dependencies, and runs lint, audit, unit tests, pinned fetch, and the browser client suite in separate steps. The read-only job token is available only to the fetch step for upstream GitHub API requests. Pull requests also build and test the `linux/amd64` Docker image. Local checks and configured coverage do not establish a successful GitHub Actions run.
 
 Pushing a `v*` tag additionally publishes to NPM (Trusted Publishing / OIDC), builds and pushes Docker images (Docker Hub + GHCR), publishes the ClawHub bundle, and creates a GitHub Release after the publication jobs succeed.
 

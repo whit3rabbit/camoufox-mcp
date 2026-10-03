@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM node:22-bookworm AS builder
 
 # Install system dependencies
@@ -21,8 +23,8 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
-# Fetch the browser (pinned camoufox-js@0.12.0 via package.json fetch:camoufox script)
-RUN npm run fetch:camoufox
+# Authenticate asset API requests during fetch without persisting credentials.
+RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN npm run fetch:camoufox
 
 # Drop dev dependencies after build so the runtime stage can copy node_modules
 # as-is. better-sqlite3 13 has no prebuilt binary for this target, so the

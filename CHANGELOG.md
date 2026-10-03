@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unsafe Firefox preference checks reject options that change world isolation or proxy policy, and check service-worker preference names regardless of case.
 - Compatibility installation repairs a missing IPv6 geolocation database, and launch checks the database for the actual exit-address family before the launcher can download implicitly.
 - The installer validates addon and geolocation assets after download, including failures swallowed by upstream download helpers.
+- CI authenticates upstream GitHub asset API requests only during fetch. Docker builds use an optional BuildKit secret mount, keeping the token out of image layers and browser runtime configuration.
 
 ### Known limitations
 

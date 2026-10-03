@@ -54,8 +54,21 @@ jobs:
       with:
         python-version: '3.x'
     
-    - name: Run all local tests (${{ matrix.browser-mode }})
-      run: npm run test:all
+    - name: Run lint, audit, and unit tests
+      run: |
+        npm run lint
+        npm audit
+        npm run test:unit
+      timeout-minutes: 10
+
+    - name: Fetch verified browser assets (${{ matrix.browser-mode }})
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: npm run fetch:camoufox
+      timeout-minutes: 10
+
+    - name: Run browser client tests (${{ matrix.browser-mode }})
+      run: npm run test:local
       timeout-minutes: 25
 
   build-and-publish-npm:
@@ -208,6 +221,8 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        secrets: |
+          github_token=${{ github.token }}
 
     - name: Setup Python for Docker runtime tests
       if: github.event_name == 'pull_request'
