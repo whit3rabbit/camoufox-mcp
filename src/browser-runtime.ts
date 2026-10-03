@@ -9,6 +9,7 @@ import { assertBrowserBinaryAvailable } from "./browser-preflight.js";
 import { probeBrowserBinary } from "./browser-preflight.js";
 import { BROWSER_COMPATIBILITY, EXPECTED_BROWSER_BUILD } from "./browser-build.js";
 import { launchCompatibilityBrowser } from "./browser-compatibility.js";
+import { trackNavigationResponses } from "./navigation-response.js";
 import type { BrowserInstance, BrowserOperationContext, CamoufoxOptions, CommonBrowserInput, PendingBrowse, RequestGuard, SlotRelease } from "./types.js";
 import { applyStealthProfile, defaultHeadlessMode, describeError, getProxySecrets, getProxyServer, redactUrl, selectOperatingSystem, withTimeout } from "./utils.js";
 
@@ -217,11 +218,8 @@ export async function runBrowserOperation<T>(
       const secrets = getProxySecrets(effectiveInput.proxy);
       const diagnostics = createDiagnosticsCollector(page, effectiveInput, rawUrls, secrets);
       let lastNavigationResponse: Response | null = null;
-      page.on("response", (response) => {
-        const request = response.request();
-        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-          lastNavigationResponse = response;
-        }
+      trackNavigationResponses(page, (committedResponse) => {
+        lastNavigationResponse = committedResponse;
       });
 
       let response: Response | null;
@@ -230,7 +228,6 @@ export async function runBrowserOperation<T>(
           waitUntil: waitStrategy,
           timeout: effectiveInput.timeout,
         });
-        lastNavigationResponse = response;
       } catch (navigationError) {
         const navigationErrorMessage = describeError(navigationError).toLowerCase();
         if (/\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback|::1)\b/.test(navigationErrorMessage)) {

@@ -163,6 +163,7 @@ export async function handleSnapshot(input: SnapshotToolInput) {
       response,
       requestGuard,
       diagnostics,
+      getLastNavigationResponse,
     }) => {
       const payload = await runGuardedPageRead(
         page,
@@ -173,6 +174,7 @@ export async function handleSnapshot(input: SnapshotToolInput) {
           input.maxChars ?? DEFAULT_MAX_CHARS,
           input.maxElements ?? DEFAULT_MAX_ELEMENTS,
           input.selector,
+          getLastNavigationResponse,
         ),
       );
       requestGuard.assertAllowed();
@@ -180,7 +182,7 @@ export async function handleSnapshot(input: SnapshotToolInput) {
       console.error(chalk.green(`[Camoufox] Successfully captured snapshot from ${safeUrl}.`));
 
       if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, getLastNavigationResponse(), payload, input.captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);
@@ -216,7 +218,7 @@ export async function handleSequence(input: SequenceToolInput) {
 
       const mode = input.outputMode ?? "text";
       const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
-      const finalResponse = getLastNavigationResponse() ?? response;
+      const finalResponse = getLastNavigationResponse();
       const contentPayload = await runGuardedPageRead(
         page,
         requestGuard,
@@ -236,6 +238,7 @@ export async function handleSequence(input: SequenceToolInput) {
           charLimit,
           input.maxElements ?? DEFAULT_MAX_ELEMENTS,
           input.selector,
+          getLastNavigationResponse,
         ),
       );
       requestGuard.assertAllowed();
@@ -268,7 +271,7 @@ export async function handleSequence(input: SequenceToolInput) {
 
       console.error(chalk.green(`[Camoufox] Successfully ran ${actions.length} actions from ${safeUrl}.`));
       if (input.captchaPolicy) {
-        const finalResponse = getLastNavigationResponse() ?? response;
+        const finalResponse = getLastNavigationResponse();
         const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, finalResponse, payload, input.captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, (screenshotResult && screenshotResult.base64) ? screenshotResult : captchaScreenshot);
       }

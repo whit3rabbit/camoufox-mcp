@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The pinned installer repairs missing executables despite existing version metadata. Doctor respects `CAMOUFOX_INSTALL_DIR` and skips browser launch when preflight fails.
 - Status removes expired sessions before reporting their count.
 - Sessions track main-frame navigation responses after clicks and reloads, so later snapshots use the current response metadata.
+- Snapshot extraction handles document changes, including reloads at the same URL, with up to three extraction attempts within 10 seconds. Continued navigation returns an error instead of mixing documents, without replaying actions. Response metadata follows committed documents after `DOMContentLoaded` in one-shot calls and sessions.
 - Link extraction returns visible links and uses accessibility labels when visible text is empty. Form extraction omits password field values.
 - Doctor and the pinned installer are shipped in the npm package and Docker runtime image.
 - The official compatibility launcher is optional, preserving the default package's Node.js 22.0 requirement under strict npm engine checks. Compatibility mode requires Node.js 22.15 or higher and the optional launcher.

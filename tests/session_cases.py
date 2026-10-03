@@ -83,7 +83,18 @@ class SessionCases:
                 "maxChars": 1000,
                 "maxElements": 20
             }, timeout=90)
-            assert self.get_tool_payload(action)["action"]["status"] == "ok", action
+            first_action = self.get_tool_payload(action)
+            assert first_action["action"]["status"] == "ok", action
+            first_snapshot = first_action["snapshot"]
+            if first_snapshot["status"] == 404:
+                assert first_snapshot["url"].endswith("/missing-page"), first_snapshot
+                assert "Error response" in first_snapshot["text"], first_snapshot
+                assert "Error response" in first_snapshot.get("ariaSnapshot", ""), first_snapshot
+            else:
+                assert first_snapshot["status"] == 200, first_snapshot
+                assert first_snapshot["url"] == navigate_payload["url"], first_snapshot
+                assert "Missing page" in first_snapshot["text"], first_snapshot
+                assert "Missing page" in first_snapshot.get("ariaSnapshot", ""), first_snapshot
             # DOM activation can return before navigation, so wait for content
             # unique to the new document before checking response metadata.
             action = self._run_tool("browse_session_action", {

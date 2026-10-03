@@ -47,7 +47,7 @@ For untrusted URLs, enforce private-network blocking with actual VM, firewall, o
 
 Focused extractors have finite count and per-field limits. A shared response byte budget remains an improvement to pursue: many individually bounded fields can still produce a large MCP response.
 
-Snapshot extraction reads text, interactive metadata, and ARIA separately. Navigation between reads can mix document generations, as observed in an exploratory run. A bounded retry when the document changes would improve snapshot coherence; it is not implemented. Use an explicit `waitFor` action before reading state after navigation.
+Snapshot extraction reads text, interactive metadata, and ARIA separately. It now detects main-frame navigation and document replacement, including reloads at the same URL, with up to three extraction attempts within a 10-second deadline. Continued navigation returns an error rather than a mixed snapshot. Response metadata follows the document after it commits and reaches `DOMContentLoaded`. Actions are not replayed by the retry. Use an explicit `waitFor` action when a page must reach a particular state. DOM changes within one document remain live.
 
 ## Release and download policy
 
@@ -61,7 +61,7 @@ Avoid `camoufox-js fetch`: its release-list selection previously picked beta.31 
 
 Doctor and a live `browse` to `https://example.com` passed in both modes. Beta.33 compatibility probes also blocked private WebSockets from pages and iframes without connecting to the target. The worker probes above establish the remaining interception gap.
 
-Both modes passed all 64 Python browser-suite cases on macOS arm64 before the final installer and policy follow-ups. After those changes, the rebuilt unit suites passed policy, sequence, SQLite, preflight, compatibility adapter, and pinned-fetch checks. Lint passed, and `npm audit` reported zero vulnerabilities.
+Earlier runs passed all 64 Python browser-suite cases in both modes on macOS arm64. Focused checks after the installer and policy follow-ups passed policy, sequence, SQLite, preflight, compatibility adapter, and pinned-fetch suites. Lint passed, and `npm audit` reported zero vulnerabilities. The subsequent Docker runtime run exposed the snapshot-navigation race described above; use the matching CI run for validation of that fix.
 
 A fresh compatibility install verified the browser archive. The final installer run verified the required assets, and both final doctor runs completed a real browse. The npm package dry run confirmed the installer, doctor, and shared browser manifest are included.
 
