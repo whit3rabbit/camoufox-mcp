@@ -7,6 +7,7 @@ import type { CaptchaPolicy, SessionRecord, SlotRelease, WaitStrategy } from "./
 import type { SessionActionToolInput, SessionCloseToolInput, SessionNavigateToolInput, SessionResumeToolInput, SessionSnapshotToolInput, SessionStartToolInput } from "./schemas.js";
 import { acquireBrowserSlot, browserContextOptions, buildCamoufoxOptions, closeBrowser, installRequestGuard, launchCamoufoxBrowser, runGuardedPageRead, settleAndAssertSafe, trackBrowser, validateBrowserOptionsInput } from "./browser-runtime.js";
 import { createDiagnosticsCollector } from "./diagnostics.js";
+import { trackNavigationResponses } from "./navigation-response.js";
 import { buildBrowsePayload, buildSnapshotPayload } from "./extractors.js";
 import { maybeDetectCaptcha } from "./captcha.js";
 import { buildSuccessContent, buildToolError } from "./responses.js";
@@ -153,7 +154,6 @@ export async function navigateSession(
       waitUntil: waitStrategy ?? session.waitStrategy,
       timeout: timeout ?? DEFAULT_ACTION_TIMEOUT_MS * 6,
     });
-    session.lastNavigationResponse = response;
     await settleAndAssertSafe(session.page, session.requestGuard);
     return response;
   } catch (navigationError) {
@@ -222,6 +222,10 @@ export async function handleSessionStart(input: SessionStartToolInput) {
       closed: false,
     };
 
+    trackNavigationResponses(page, (response) => {
+      session.lastNavigationResponse = response;
+    });
+
     sessions.set(id, session);
     browser = undefined;
     release = undefined;
@@ -282,6 +286,7 @@ export async function buildSessionSnapshotResult(
       input.maxChars ?? DEFAULT_MAX_CHARS,
       input.maxElements ?? DEFAULT_MAX_ELEMENTS,
       input.selector,
+      () => session.lastNavigationResponse,
     ),
   );
   // Surface the diagnostics collector that was created at session start but
@@ -341,6 +346,7 @@ export async function handleSessionAction(input: SessionActionToolInput) {
           input.maxChars ?? DEFAULT_MAX_CHARS,
           input.maxElements ?? DEFAULT_MAX_ELEMENTS,
           input.selector,
+          () => currentSession.lastNavigationResponse,
         ),
       );
       const basePayload = { sessionId: currentSession.id, expiresAt: sessionExpiresAt(currentSession), action: actionResult, snapshot };

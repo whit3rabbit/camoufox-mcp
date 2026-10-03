@@ -1,6 +1,6 @@
-import type { Page, Response } from "playwright-core";
+import type { Frame, Page, Response } from "playwright-core";
 import type { SnapshotElement, SnapshotPayload } from "../types.js";
-import { describeError, redactUrl, truncateString } from "../utils.js";
+import { describeError, redactUrl, truncateString, withTimeout } from "../utils.js";
 import { extractPageContent } from "./content.js";
 
 export async function extractSnapshotElements(
@@ -183,20 +183,28 @@ export async function extractSnapshotElements(
   );
 }
 
-export async function buildSnapshotPayload(
+const SNAPSHOT_ATTEMPTS = 3;
+const SNAPSHOT_TIMEOUT_MS = 10000;
+
+class SnapshotNavigationChanged extends Error {}
+
+function isNavigationReadError(error: unknown): boolean {
+  return error instanceof SnapshotNavigationChanged
+    || /execution context was destroyed|cannot find context with (?:specified )?id/i.test(describeError(error));
+}
+
+async function readSnapshotPayload(
   page: Page,
-  response: Response | null,
   maxChars: number,
   maxElements: number,
-  selector?: string,
+  selector: string | undefined,
+  remainingMs: () => number,
 ): Promise<SnapshotPayload> {
   const text = await extractPageContent(page, "text", maxChars, selector);
   const elementSnapshot = await extractSnapshotElements(page, maxElements, selector);
   const payload: SnapshotPayload = {
     url: redactUrl(page.url()),
     title: await page.title(),
-    status: response?.status(),
-    contentType: response?.headers()["content-type"],
     selector,
     selectorFound: text.found && elementSnapshot.found,
     maxChars,
@@ -213,13 +221,74 @@ export async function buildSnapshotPayload(
 
   try {
     const target = selector ? page.locator(selector).first() : page.locator("body").first();
-    const aria = await target.ariaSnapshot({ timeout: 3000 });
+    const timeout = Math.min(3000, remainingMs());
+    const aria = await target.ariaSnapshot({ timeout });
     const truncated = truncateString(aria, maxChars);
     payload.ariaSnapshot = truncated.value;
     payload.ariaSnapshotTruncated = truncated.truncated;
   } catch (snapshotError) {
+    remainingMs();
+    if (isNavigationReadError(snapshotError)) throw snapshotError;
     payload.ariaSnapshotError = describeError(snapshotError);
   }
 
   return payload;
+}
+
+export async function buildSnapshotPayload(
+  page: Page,
+  response: Response | null,
+  maxChars: number,
+  maxElements: number,
+  selector?: string,
+  getResponse: () => Response | null = () => response,
+): Promise<SnapshotPayload> {
+  const deadline = Date.now() + SNAPSHOT_TIMEOUT_MS;
+  const remainingMs = () => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("Snapshot timed out.");
+    return remaining;
+  };
+  let generation = 0;
+  const onNavigation = (frame: Frame) => {
+    if (frame === page.mainFrame()) generation += 1;
+  };
+  page.on("framenavigated", onNavigation);
+
+  try {
+    return await withTimeout((async () => {
+      for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt += 1) {
+        const attemptGeneration = generation;
+        let documentHandle;
+        try {
+          await page.waitForLoadState("domcontentloaded", { timeout: remainingMs() });
+          documentHandle = await page.evaluateHandle(() => document);
+          const payload = await readSnapshotPayload(page, maxChars, maxElements, selector, remainingMs);
+          // A retained document handle detects reloads at the same URL too.
+          // Retry only extraction, never the action that triggered navigation.
+          if (attemptGeneration !== generation || !await documentHandle.evaluate((original) => original === document)) {
+            throw new SnapshotNavigationChanged("Document changed during snapshot extraction.");
+          }
+          const currentResponse = getResponse();
+          payload.status = currentResponse?.status();
+          payload.contentType = currentResponse?.headers()["content-type"];
+          if (attemptGeneration !== generation || !await documentHandle.evaluate((original) => original === document)) {
+            throw new SnapshotNavigationChanged("Document changed during snapshot metadata extraction.");
+          }
+          return payload;
+        } catch (error) {
+          remainingMs();
+          if (!isNavigationReadError(error)) throw error;
+          if (attempt === SNAPSHOT_ATTEMPTS - 1) {
+            throw new Error(`Snapshot could not stabilize after ${SNAPSHOT_ATTEMPTS} attempts.`, { cause: error });
+          }
+        } finally {
+          await documentHandle?.dispose().catch(() => undefined);
+        }
+      }
+      throw new Error("Snapshot could not stabilize.");
+    })(), SNAPSHOT_TIMEOUT_MS, "Snapshot");
+  } finally {
+    page.off("framenavigated", onNavigation);
+  }
 }

@@ -1,6 +1,6 @@
 {
     "name": "camoufox-mcp-server",
-    "version": "2.5.1",
+    "version": "2.6.0",
     "description": "MCP server for browser automation using Camoufox - a privacy-focused Firefox fork with advanced anti-detection features",
     "keywords": [
         "mcp",
@@ -17,7 +17,9 @@
     "type": "module",
     "main": "dist/index.js",
     "bin": {
-        "camoufox-mcp-server": "dist/index.js"
+        "camoufox-mcp-server": "dist/index.js",
+        "camoufox-mcp-fetch": "scripts/fetch-browser.mjs",
+        "camoufox-mcp-doctor": "scripts/doctor.mjs"
     },
     "files": [
         "dist/**/*",
@@ -34,7 +36,9 @@
         ".claude-plugin/**/*",
         ".agents/plugins/**/*",
         "README.md",
-        "LICENSE"
+        "LICENSE",
+        "browser-builds.json",
+        "scripts/doctor.mjs"
     ],
     "repository": {
         "type": "git",
@@ -55,7 +59,7 @@
         "fetch:camoufox": "node scripts/fetch-browser.mjs",
         "doctor": "node scripts/doctor.mjs",
         "test": "npm run test:local",
-        "test:unit": "npm run build && node tests/unit_policy.mjs && node tests/unit_sequence.mjs && node tests/unit_sqlite_shim.mjs && node tests/unit_browser_preflight.mjs",
+        "test:unit": "npm run build && node tests/unit_policy.mjs && node tests/unit_sequence.mjs && node tests/unit_snapshot.mjs && node tests/unit_sqlite_shim.mjs && node tests/unit_browser_preflight.mjs && node tests/unit_browser_compatibility.mjs && node tests/unit_browser_fetch.mjs",
         "test:local": "npm run build && PYTHONDONTWRITEBYTECODE=1 python3 tests/test_client.py --mode local",
         "test:camoufox": "npm run fetch:camoufox && npm run test:local",
         "test:docker": "./tests/run_tests.sh",
@@ -67,6 +71,9 @@
         "chalk": "^5.6.2",
         "playwright-core": "1.59.0",
         "zod": "^4.4.3"
+    },
+    "optionalDependencies": {
+        "@camoufox/camoufox": "0.5.7-beta.4"
     },
     "overrides": {
         "adm-zip": "^0.6.0",

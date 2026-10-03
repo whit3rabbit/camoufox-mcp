@@ -144,7 +144,9 @@ export async function extractForms(
             selector: selectorFor(field),
             required: field.hasAttribute("required"),
             placeholder: field.getAttribute("placeholder") ?? undefined,
-            value: field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.value.slice(0, 300) : undefined,
+            // Preserve password field metadata without exposing the value the
+            // browser masks, including credentials populated by page scripts.
+            value: type !== "password" && (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) ? field.value.slice(0, 300) : undefined,
             options,
           });
         }

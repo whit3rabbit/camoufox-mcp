@@ -1,14 +1,14 @@
 # Camoufox MCP Server
 
-> MCP server for browser automation using Camoufox (a privacy-focused Firefox fork with anti-detection). Exposes a `browse` family of tools (navigate, extract text/links/forms/outline, snapshot, screenshot, multi-step sequences, stateful sessions) with bounded output and best-effort SSRF guards. Published on npm as `camoufox-mcp-server`; runs over stdio via `npx`. Node >= 22.
+> MCP server for browser automation using Camoufox (a privacy-focused Firefox fork with anti-detection). Exposes a `browse` family of tools (navigate, extract text/links/forms/outline, snapshot, screenshot, multi-step sequences, stateful sessions) with bounded output and best-effort SSRF guards. Published on npm as `camoufox-mcp-server`; runs over stdio via `npx`. The published default runtime supports Node >=22.0. Repository builds and compatibility mode require Node >=22.15 and the optional launcher.
 
 ## Install (pick your host)
 
 The MCP server works on every host via `npx -y camoufox-mcp-server@latest`. 
 
-> **Important (Browser Fetch & Pinning):** The first browse on a new machine fetches the ~780MB Camoufox binary. If a call reports the binary is missing, run `npx -y camoufox-js@0.10.2 fetch` (do **not** omit the `@0.10.2` version pin; a bare `camoufox-js fetch` pulls the latest version which writes a layout the MCP server cannot read).
+> **Browser setup:** Status and launch preflight never download the browser. From a checkout, use `npm run fetch:camoufox`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. After release 2.6.0 is published, npx installs can use `npx --yes --package camoufox-mcp-server@2.6.0 camoufox-mcp-fetch` or the same command with `camoufox-mcp-doctor`. Avoid `camoufox-js fetch`, whose release selection can install a build that bypasses page WebSocket interception.
 > 
-> **Disk Space & /tmp Gotcha:** The binary extracts via `/tmp/camoufox-*` scratch directories. On hosts with small `/tmp` (such as cloud VMs or containers where `/tmp` is a `tmpfs` capped at 1-2GB), a partial previous download attempt leaves ~680MB temp directories. This causes `Error: ENOSPC: no space left on device` on the next fetch. **Fix:** Run `rm -rf /tmp/camoufox-*` (safe if no live Camoufox processes are running) before retrying the fetch.
+> **Disk space:** Fetching needs room for the archive, extracted browser, and supporting assets; requirements vary by platform and build. Check the install and OS temporary filesystems. Inspect installer scratch directories and confirm each is abandoned and unused by a live installer before removing that exact directory, then retry the pinned fetch.
 
 Add `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` in the env only if you need `firefox_user_prefs` / `args` / `exclude_addons` for hard-site tuning; bare installs are safe by default.
 
@@ -47,19 +47,20 @@ Confirm the exact name in your host's tool list before calling.
 ### Troubleshooting: `browserAvailable: false` after fetch
 
 If `camoufox_status` reports `browserAvailable: false` even after downloading the browser:
-1. **Stale MCP Server Process:** The host process cached the false answer at startup. Restart your host/gateway daemon, or remove and re-add the server (e.g., `hermes mcp remove camoufox && hermes mcp add ...`).
-2. **Layout Mismatch:** The download wrote the wrong directory structure. Wipe the cache completely and refetch with the version pin:
-   ```bash
-   # macOS
-   rm -rf ~/Library/Caches/camoufox/Camoufox.app ~/Library/Caches/camoufox/version.json && npx -y camoufox-js@0.10.2 fetch
-   
-   # Linux/Docker
-   rm -rf ~/.cache/camoufox && npx -y camoufox-js@0.10.2 fetch
-   ```
+
+1. **Environment mismatch:** Status inspects the cache on every call. Use the same `CAMOUFOX_INSTALL_DIR` and compatibility flag for fetch, doctor, and the host process. Restart the host after changing its environment.
+2. **Wrong build or incomplete cache:** Re-run the pinned installer in that environment. It verifies archive hashes and repairs incomplete installations. If matching metadata hides corrupt libraries, stop the server and move aside the exact cache directory reported by doctor before refetching.
+
+### Browser modes
+
+The default remains beta.28 with `camoufox-js` 0.12.0 and direct `playwright-core` 1.59.0. Opt-in beta.33 uses optional `@camoufox/camoufox` 0.5.7-beta.4 on Node >=22.15. Repository builds require `npm install --include=optional`.
+
+Use `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` for installation, doctor, and the host's MCP server environment. Compatibility otherwise uses a separate `camoufox-compatibility` sibling cache. Inspect `camoufox_status.browserCompatibility` for mode, versions, launcher, and warning. Both supported modes run automation in the page world. Worker WebSockets evade interception in both modes; untrusted browsing requires actual network egress controls.
 
 ## Docs
 
 - [Quick install, all hosts](README.md)
 - [Skill usage and tool-selection guide](plugins/camoufox/skills/camoufox/SKILL.md)
 - [Per-host configuration matrix](docs/configuration.md)
+- [Browser compatibility, setup and evidence](docs/browser-compatibility.md)
 - [JSON-RPC debugging (no host needed)](plugins/camoufox/skills/camoufox/references/json-rpc-debug.md)

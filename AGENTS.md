@@ -16,14 +16,18 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 ## Commands
 
 ### Development
+
+Repository builds require Node >=22.15 and the optional launcher installed with `npm install --include=optional` for its TypeScript declarations. The published default runtime supports Node >=22.0 without that launcher.
+
 - `npm run build` - Clean and compile TypeScript to dist/
 - `npm run dev` - Watch mode for TypeScript compilation
 - `npm start` - Run the compiled server
 - `npm run lint` - Run ESLint checks via package script (or `npx eslint src/`)
 - `npm run fetch:camoufox` - Download/fetch the Camoufox browser binaries
 - `npm run doctor` - Run preflight sanity/diagnostic checks on Node, playwright-core, and cached browser versions
+- Public package commands: `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. Global installs of 2.6.0 expose them directly. After 2.6.0 is published, use `npx --yes --package camoufox-mcp-server@2.6.0 <command>` for npx installs. Preserve the server's compatibility flag and install-directory environment for both commands.
 - `npm test` - Build and run Python test client locally (shortcut for `npm run test:local`)
-- `npm run test:unit` - Build and run deterministic policy/sequence/preflight unit tests
+- `npm run test:unit` - Build and run deterministic policy, sequence, snapshot, browser, and SQLite unit tests
 - `npm run test:local` - Build and run Python test client locally against the local server
 - `npm run test:camoufox` - Fetch the browser binary and run the local client tests
 - `npm run test:all` - Comprehensive quality pipeline: lint, audit, unit tests, fetch, and client tests
@@ -41,10 +45,10 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 - Smoke-test the server without an MCP host via raw JSON-RPC against `node dist/index.js` (see `plugins/camoufox/skills/camoufox/references/json-rpc-debug.md`): send `initialize`, then a `browse` `tools/call`.
 
 ### ClawHub Package Publishing
-Use this when `plugins/camoufox/skills/camoufox/` or bundled plugin metadata changes and the OpenClaw package needs a new release.
+Tagged releases publish the OpenClaw bundle automatically. Use the manual clean-staging procedure below only for an explicitly requested recovery or republication.
 
 - ClawHub package: [@whit3rabbit/camoufox-mcp](https://clawhub.ai/packages/%40whit3rabbit%2Fcamoufox-mcp). OpenClaw install spec: `clawhub:@whit3rabbit/camoufox-mcp`.
-- NPM, Docker, and GitHub releases are published by CI from `v*` tags. Do not run `npm publish` locally. Bump versions, commit, tag `v<version>`, push `main` and the tag, wait for CI to publish npm, then publish the matching ClawHub package.
+- CI publishes NPM, Docker, ClawHub, and GitHub releases from `v*` tags. Do not run `npm publish` locally or duplicate the ClawHub publish after a successful tagged workflow.
 - Keep `plugins/camoufox/openclaw.plugin.json`, `plugins/camoufox/package.json`, `.codex-plugin/plugin.json`, and `.claude-plugin/plugin.json` versions aligned with the repo release version.
 - Do not publish directly from `plugins/camoufox/` if it contains generated `reports/`, `skills/camoufox/evals/`, or `skills/camoufox-workspace/`. Build a clean staging directory and publish that instead.
 - Validate before publishing. `clawhub package validate` writes `reports/` into the source folder, so validate first, then rebuild the clean staging directory for the final dry-run and publish.
@@ -78,22 +82,25 @@ clawhub package publish "$stage" \
   --dry-run
 ```
 
-Publish by rerunning the same `clawhub package publish` command without `--dry-run`. Success criteria: dry-run lists only the runtime bundle files, publish returns a `releaseId`, and `clawhub package inspect @whit3rabbit/camoufox-mcp --json` reports the new `latestVersion`.
+For an authorized manual recovery, publish by rerunning the same `clawhub package publish` command without `--dry-run`. Success criteria: dry-run lists only the runtime bundle files, publish returns a `releaseId`, and `clawhub package inspect @whit3rabbit/camoufox-mcp --json` reports the new `latestVersion`. Package validation alone does not confirm installation into a target OpenClaw checkout.
 
 ## Dependency & Browser Pinning
-- Verified-good triple (full local suite, macOS arm64): `camoufox-js` 0.12.0 + `playwright-core` 1.59.0 + browser binary 152.0.4-beta.28. Run `npm run doctor` to confirm it end-to-end (it drives a real `browse`).
-- **`playwright-core` MUST be a direct pinned dependency, not just an `overrides` entry.** npm `overrides` only bind the root project, so they do NOT pin `playwright-core` when this package is installed as a dependency (`npx camoufox-mcp-server@latest`, global install, or as someone else's dep). In those paths `camoufox-js`'s peer `playwright-core: *` floats to the newest release, which is incompatible with the Camoufox Juggler — this shipped a broken server to npx users until `playwright-core` was added to `dependencies`. Keep both: the direct `dependencies` pin holds every install path; the `overrides` entry dedupes the transitive copy. Do not loosen either.
-- `playwright-core` ceiling: 1.59.0 is the newest that passes the full suite. 1.60.0 breaks the "delayed private navigation" **security guard** (`TypeError: Cannot read properties of undefined (reading 'url')` from a changed Playwright response-event payload). 1.61.0 sends `isMobile` in `Browser.setDefaultViewport`, which the Camoufox Juggler rejects (`... isMobile ... not described in this scheme`) — confirmed still rejected by the 150 build too. `isMobile` is unsupported in Firefox and has no replacement; the fix is matching pw to the Camoufox build, not a new option (see daijro/camoufox#612). Do not bump pw without re-running the full suite.
-- Browser build history: 135.0.1-beta.24 was the last FF135 stable. The 152.0.4-alpha builds (fetched by `camoufox-js` 0.11.0/0.11.1) broke all screenshots (`Protocol error (Page.screenshot): can't access property "document", win is undefined`, daijro/camoufox#659) and were not adopted. Upstream fixed the screenshot regression in 152.0.4-beta.26 and marked 152.0.4-beta.27+ the new latest stable channel (FF135 declared too old for modern anti-bot systems). 152.0.4-beta.28 + `camoufox-js` 0.12.0 + `playwright-core` 1.59.0 passes the full local suite, including every screenshot case. The pw ceiling was NOT re-tested against the 152 build (`isMobile` rejection was last confirmed on the 150 build); the 1.59.0 pin stands until someone re-runs the full suite on a newer pw.
-- **`camoufox-js fetch` is poisoned (since 2026-09-24): do not use it.** Its updater installs the first non-prerelease GitHub release with a matching asset, and the `font-bundle-v1` build-input release (daijro/camoufox, 2026-09-24) carries full browser zips labeled `152.0.4-beta.31` — "Build input, not a browser download. Nothing here is meant to be installed" per its own notes, and there is no beta.31 release tag. beta.31 breaks `context.routeWebSocket()` interception behind the private-WebSocket SSRF guard: the "Reject Private WebSocket" suite case fails deterministically (3/3) on playwright-core 1.59.0 AND 1.63.0, so it must not be adopted. `npm run fetch:camoufox` therefore runs `scripts/fetch-browser.mjs`, which skips the release listing and installs the pinned release asset directly (bump its constants together with doctor `EXPECTED` and this section). Docker builds and CI use the same script via the `fetch:camoufox` npm script.
-- If you change the pinned triple, also update the `EXPECTED` const in `scripts/doctor.mjs` (it mirrors this section).
-- Always wipe the cache before changing binary versions (overlaying a new build onto an old bundle corrupts it, e.g. `Library not loaded: @rpath/libmozglue.dylib`). Reset:
-  - macOS: `rm -rf ~/Library/Caches/camoufox && npm run fetch:camoufox`
-  - Linux/Docker: `rm -rf ~/.cache/camoufox && npm run fetch:camoufox`
+
+- Default triple (prior 64/64 local browser-suite cases, macOS arm64; focused installer/policy checks also passed): `camoufox-js` 0.12.0 + `playwright-core` 1.59.0 + browser binary 152.0.4-beta.28. Run `npm run doctor` to verify the selected build and a real `browse`. This build predates world isolation and already runs automation in the page world. It is the default pin, not the newest upstream release. Use the matching CI run for evidence after subsequent fixes.
+- Opt-in compatibility mode (prior 64/64 local browser-suite cases, macOS arm64; focused installer/policy checks also passed): `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` selects 156.0.1-beta.33 and the official `@camoufox/camoufox` 0.5.7-beta.4 launcher with its default fingerprint model. Node >=22.15 and the optional launcher are required. Keep its exact pin in `optionalDependencies` so published default installs preserve Node >=22.0 support. Use `npm install --include=optional` on a compatible Node version before enabling the mode. `disableWorldIsolation: true` restores page/iframe WebSocket interception but exposes automation JavaScript to websites. Dedicated-worker WebSockets evade routing in both modes. Keep it opt-in; see [browser compatibility](docs/browser-compatibility.md) for sources, setup, and validation status. Set the same environment for `fetch:camoufox`, doctor, and the MCP server.
+- `browser-builds.json` is the shared source for browser versions, launcher versions, and archive SHA-256 digests. When changing a browser pin, update all six official platform digests. Runtime preflight rejects a build that differs from the selected mode before launch. Installer and doctor read the same manifest.
+- **`playwright-core` MUST be a direct pinned dependency, not just an `overrides` entry.** npm `overrides` only bind the root project, so they do NOT pin `playwright-core` when this package is installed as a dependency (`npx camoufox-mcp-server@latest`, global install, or as someone else's dep). Without a direct pin, `camoufox-js`'s peer `playwright-core: *` floats and can break the Camoufox Juggler. Keep both: the direct `dependencies` pin holds every install path; the `overrides` entry dedupes the transitive copy.
+- Keep Playwright 1.59.0 until a newer version passes the full suite in the selected mode. Earlier probes found 1.60.0 broke the delayed private-navigation guard (`TypeError: Cannot read properties of undefined (reading 'url')`) and 1.61.0 sent an `isMobile` viewport option rejected by the 150 browser build. Those results do not establish compatibility with later browser builds. Re-run screenshot, navigation, and WebSocket guards before changing either pin.
+- Browser history: 135.0.1-beta.24 was the last FF135 stable. The 152.0.4-alpha builds fetched by `camoufox-js` 0.11.0/0.11.1 broke screenshots (`Page.screenshot`: `win is undefined`, daijro/camoufox#659). Beta.26 fixed that regression; the beta.28 default has prior full-suite evidence including every screenshot case.
+- Use `npm run fetch:camoufox`, which installs an exact tagged asset and verifies its SHA-256 before extraction. `camoufox-js fetch` previously selected beta.31 from the `font-bundle-v1` build-input release. That build failed private-WebSocket rejection on Playwright 1.59.0 and 1.63.0. Newer isolated builds still require the compatibility workaround; upstream issue #775 remains open.
+- Status and launch checks must only inspect the cache. Upstream `launchPath()` can trigger a download for a missing cache and write to MCP stdout; use `probeBrowserBinary()` instead. The pinned installer checks both metadata and executable completeness before skipping an install.
+- Never overlay browser builds. The pinned installer clears the selected cache before replacing it. Compatibility mode defaults to a separate `camoufox-compatibility` sibling cache; `CAMOUFOX_INSTALL_DIR` overrides it. Preserve the default cache when testing candidate releases.
 
 ## Release & Versioning
 
-Releases are tag-driven. `.github/workflows/ci.yml` runs tests on every push/PR; pushing a `v*` tag additionally publishes to NPM (Trusted Publishing / OIDC), builds and pushes Docker images (Docker Hub + GHCR), and creates a GitHub Release.
+Releases are tag-driven. `.github/workflows/ci.yml` runs a four-job Ubuntu 24.04 matrix: Node 22/24 with default/compatibility browser modes. Each job checks release versions, installs optional dependencies, and runs `npm run test:all`. Pull requests also build and test the `linux/amd64` Docker image. Local checks and configured coverage do not establish a successful GitHub Actions run.
+
+Pushing a `v*` tag additionally publishes to NPM (Trusted Publishing / OIDC), builds and pushes Docker images (Docker Hub + GHCR), publishes the ClawHub bundle, and creates a GitHub Release after the publication jobs succeed.
 
 The version string lives in seven files and **must stay in sync** (the test suite asserts `camoufox_status.version` == `package.json` version, and `SERVER_VERSION` feeds that response):
 - `package.json` (`version`)
@@ -105,10 +112,10 @@ The version string lives in seven files and **must stay in sync** (the test suit
 - `plugins/camoufox/openclaw.plugin.json` (`version`)
 
 Release steps:
-1. Bump all seven version strings to the new version.
+1. Bump all seven version strings and both root `package-lock.json` version records to the new version. Run `node tests/check_release_versions.mjs`.
 2. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [x.y.z] - YYYY-MM-DD` heading; leave a fresh empty `[Unreleased]`.
 3. Run `npm run test:all` (or at least `npm run build` + `npm run test:unit`) and commit.
-4. Tag `vX.Y.Z` and push the tag. CI handles NPM, Docker, and the GitHub Release; the release body links `CHANGELOG.md`.
+4. Tag `vX.Y.Z` and push the tag when release publication is authorized. CI handles NPM, Docker, ClawHub, and the GitHub Release; the release body links `CHANGELOG.md`.
 
 SemVer: new tools/params or additive capabilities → minor; behavior changes to defaults are called out in the changelog `Changed` section.
 
@@ -219,8 +226,9 @@ Start and manipulate isolated, short-lived browser sessions. Sessions are epheme
 - Initial URLs, final navigation URLs, and browser requests are rejected if they target localhost, private, link-local, or reserved IP space
 - Session slots are reserved before launch so concurrent starts cannot exceed `CAMOUFOX_MCP_MAX_SESSIONS`
 - Session reads/actions must surface delayed blocked requests before returning page state
+- Snapshot reads allow up to three extraction attempts within 10 seconds and fail if navigation continues. Preserve the document-identity check for reloads at the same URL, and never replay actions during extraction retries.
 - Click actions support `clickMode`: `dom` is the default CI/Xvfb-stable DOM activation path, `pointer` uses Playwright pointer input, and `auto` tries pointer first before DOM fallback.
-- `camoufox_status.networkSecurity` reports application-layer best-effort SSRF policy and conservative network sandbox posture. Docker/container detection is not proof of egress filtering.
+- `camoufox_status.networkSecurity` reports application-layer best-effort SSRF policy and conservative network sandbox posture. Dedicated-worker WebSockets evade the frame-based routing guard in both browser modes. Untrusted browsing requires actual VM, firewall, filtering proxy, or controlled container egress rules. Docker/container detection is not proof of egress filtering.
 - CAPTCHA handling is manual by default. `captchaPolicy: "attempt"` returns challenge metadata, interactive elements, a bounded screenshot, and a suggested strategy. When `CAPTCHA_AUTONOMOUS=true` is set, responses use `challengeHandling: "llm_assisted"` and include provider-specific `challengePlaybook` context when known. The server never solves CAPTCHAs itself or invokes an external skill.
 - Browser instances are created per request (not persisted)
 - Error handling includes detailed error messages for debugging

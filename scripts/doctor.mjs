@@ -7,24 +7,31 @@
 // No external deps on purpose: this must run before `npm install` is trusted.
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import builds from "../browser-builds.json" with { type: "json" };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // ponytail: single source of truth for the verified triple mirrors the
 // "Dependency & Browser Pinning" section in CLAUDE.md. Bump here + there
 // together when the gated upgrade in that section is adopted.
+const compatibility = process.env.CAMOUFOX_MCP_BROWSER_COMPATIBILITY === "1";
+const selectedBuild = compatibility ? builds.compatibility : builds.default;
 const EXPECTED = {
-  camoufoxJs: "0.12.0",
-  playwrightCore: "1.59.0",
-  binaryVersion: "152.0.4",
-  binaryRelease: "beta.28",
+  camoufoxJs: builds.default.launcherVersion,
+  playwrightCore: builds.playwrightCore,
+  binaryVersion: selectedBuild.version,
+  binaryRelease: selectedBuild.release,
 };
 
 const req = (p) => JSON.parse(readFileSync(join(ROOT, p), "utf8"));
+const packageResolver = createRequire(import.meta.url);
+// npm may hoist dependencies beside this package. Resolve manifests without loading code.
+const installedPackage = (name) => JSON.parse(readFileSync(packageResolver.resolve(`${name}/package.json`), "utf8"));
 let failed = 0;
 const ok = (m) => console.log(`  ok    ${m}`);
 const fail = (m, fix) => {
@@ -36,7 +43,11 @@ const fail = (m, fix) => {
 // 1. Node version (matches package.json engines).
 function checkNode() {
   const major = Number(process.versions.node.split(".")[0]);
-  if (major >= 22) ok(`Node ${process.versions.node} (>=22)`);
+  const minor = Number(process.versions.node.split(".")[1]);
+  if (compatibility && (major < 22 || (major === 22 && minor < 15))) {
+    fail(`Node ${process.versions.node} is too old for the compatibility launcher`, "use Node >=22.15");
+  }
+  else if (major >= 22) ok(`Node ${process.versions.node} (>=22)`);
   else fail(`Node ${process.versions.node} is < 22`, "use Node >=22 (see engines in package.json)");
 }
 
@@ -49,7 +60,7 @@ function checkCamoufoxPin() {
   }
   let installed;
   try {
-    installed = req("node_modules/camoufox-js/package.json").version;
+    installed = installedPackage("camoufox-js").version;
   } catch {
     fail("camoufox-js is not installed", "run `npm install`");
     return;
@@ -80,7 +91,7 @@ function checkPlaywright() {
   }
   let installed;
   try {
-    installed = req("node_modules/playwright-core/package.json").version;
+    installed = installedPackage("playwright-core").version;
   } catch {
     fail("playwright-core is not installed", "run `npm install`");
     return;
@@ -96,9 +107,17 @@ function checkPlaywright() {
 // Overlaying a new build onto an old bundle corrupts it, so a mismatch must be
 // fixed by wiping the cache, not by re-fetching over the top.
 function cacheDir() {
+  if (process.env.CAMOUFOX_INSTALL_DIR) return resolve(process.env.CAMOUFOX_INSTALL_DIR);
+  if (compatibility) {
+    const base = platform() === "darwin" ? join(homedir(), "Library", "Caches", "camoufox")
+      : platform() === "win32" ? join(homedir(), "AppData", "Local", "camoufox", "camoufox", "Cache")
+      : join(homedir(), ".cache", "camoufox");
+    return `${base}-compatibility`;
+  }
   if (platform() === "darwin") return join(homedir(), "Library", "Caches", "camoufox");
-  const xdg = process.env.XDG_CACHE_HOME;
-  return join(xdg && xdg.trim() ? xdg : join(homedir(), ".cache"), "camoufox");
+  if (platform() === "win32") return join(homedir(), "AppData", "Local", "camoufox", "camoufox", "Cache");
+  // Match camoufox-js, which does not use XDG_CACHE_HOME for its browser cache.
+  return join(homedir(), ".cache", "camoufox");
 }
 function checkBinary() {
   const dir = cacheDir();
@@ -204,10 +223,23 @@ console.log("Camoufox MCP doctor\n");
 console.log("Pins & environment:");
 checkNode();
 checkCamoufoxPin();
+if (compatibility) {
+  try {
+    const installed = installedPackage("@camoufox/camoufox").version;
+    const declared = req("package.json").optionalDependencies?.["@camoufox/camoufox"];
+    if (installed === selectedBuild.launcherVersion && declared === installed) ok(`official launcher ${installed} (exact pin)`);
+    else fail("official launcher version mismatch", "use Node >=22.15 and run npm install --include=optional");
+  } catch { fail("official launcher is not installed", "use Node >=22.15 and run npm install --include=optional"); }
+  console.log("  World isolation disabled for WebSocket compatibility; automation is detectable.");
+}
 checkPlaywright();
 checkBinary();
-console.log("\nLive smoke test (launches the browser, ~a few seconds):");
-await smokeTest();
+if (failed) {
+  console.log("\nLive smoke test skipped until the preflight checks pass.");
+} else {
+  console.log("\nLive smoke test (launches the browser, ~a few seconds):");
+  await smokeTest();
+}
 
 console.log("");
 if (failed) {

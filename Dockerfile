@@ -43,6 +43,8 @@ USER myappuser
 WORKDIR /home/myappuser/app
 
 COPY --from=builder /app/package.json /app/package-lock.json* ./
+COPY --from=builder /app/browser-builds.json ./
+COPY --from=builder --chown=myappuser:myappuser /app/scripts ./scripts
 COPY --from=builder --chown=myappuser:myappuser /app/node_modules ./node_modules
 
 COPY --from=builder --chown=myappuser:myappuser /app/dist ./dist

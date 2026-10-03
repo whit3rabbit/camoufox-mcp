@@ -83,6 +83,50 @@ class BrowseCases:
         assert content[1].get("mimeType") == "image/jpeg"
         print("CallTool selector JPEG screenshot test passed.")
 
+    def test_call_tool_links_only_visible_with_accessible_labels(self):
+        print("--- Running Test: Call Tool - Visible Links And Accessible Labels ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <a href="/pricing" style="display:none">Hidden Pricing</a>
+  <a href="/hidden" style="visibility:hidden">Hidden Destination</a>
+  <a href="/pricing">Pricing</a>
+  <a href="/docs" aria-label="Documentation" style="display:inline-block;width:24px;height:24px"> </a>
+  <a href="/help" aria-label=" " title="Help" style="display:inline-block;width:24px;height:24px"></a>
+  <a href="/hidden-after-limit" style="display:none">Hidden After Limit</a>
+</body>
+</html>"""
+        payload = self.get_tool_payload(self._run_links({
+            "url": self._fixture_url(html),
+            "maxLinks": 3
+        }, timeout=90))
+        assert [link["text"] for link in payload["links"]] == ["Pricing", "Documentation", "Help"], payload
+        assert all(link["visible"] for link in payload["links"]), payload
+        assert payload["truncated"] is False, payload
+        print("CallTool visible links and accessible labels test passed.")
+
+    def test_call_tool_forms_omit_password_values(self):
+        print("--- Running Test: Call Tool - Forms Omit Password Values ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <form>
+    <label>Username <input name="username" value="alice"></label>
+    <label>Password <input type="password" name="password" required value="password-fixture-secret"></label>
+  </form>
+</body>
+</html>"""
+        response = self._run_forms({"url": self._fixture_url(html)}, timeout=90)
+        payload = self.get_tool_payload(response)
+        fields = {field["name"]: field for form in payload["forms"] for field in form["fields"]}
+        assert fields["username"]["value"] == "alice", fields
+        assert fields["password"]["type"] == "password", fields
+        assert fields["password"]["required"] is True, fields
+        assert fields["password"]["label"] == "Password", fields
+        assert "value" not in fields["password"], fields
+        assert "password-fixture-secret" not in json.dumps(response), response
+        print("CallTool forms omit password values test passed.")
+
     def test_call_tool_focused_extractors(self):
         print("--- Running Test: Call Tool - Focused Extractors ---")
         html = """<!doctype html>

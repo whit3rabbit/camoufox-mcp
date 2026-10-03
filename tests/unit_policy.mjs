@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   browserRequestPolicyUrl,
   isBlockedIp,
@@ -59,6 +60,22 @@ for (const address of allowedAddresses) {
 
 assert.equal(browserRequestPolicyUrl("ws://example.com/socket"), "http://example.com/socket");
 assert.equal(browserRequestPolicyUrl("wss://example.com/socket"), "https://example.com/socket");
+
+// Read unsafe-option policy in a fresh process so opt-in reaches the denylist,
+// rather than passing because the default blanket restriction rejects prefs.
+const browserOptionsUrl = new URL("../dist/browser-options.js", import.meta.url).href;
+execFileSync(process.execPath, ["--input-type=module", "-e", `
+  import assert from "node:assert/strict";
+  import { validateBrowserOptionsInput } from ${JSON.stringify(browserOptionsUrl)};
+  for (const key of ["dom.serviceWorkers.enabled", "dom.serviceworkers.enabled", "DOM.SERVICEWORKERS.ENABLED"]) {
+    await assert.rejects(
+      validateBrowserOptionsInput({ firefox_user_prefs: { [key]: true } }),
+      /denied by server policy/,
+      key + " must remain denied when unsafe options are enabled",
+    );
+  }
+  await assert.doesNotReject(validateBrowserOptionsInput({ firefox_user_prefs: { "browser.startup.page": 0 } }));
+`], { env: { ...process.env, CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS: "1" } });
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalAllowLocalhost = process.env.CAMOUFOX_MCP_TEST_ALLOW_LOCALHOST;

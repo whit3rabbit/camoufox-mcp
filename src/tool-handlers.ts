@@ -1,4 +1,5 @@
-import { launchPath } from "camoufox-js/dist/pkgman.js";
+import { probeBrowserBinary } from "./browser-preflight.js";
+import { buildBrowserCompatibilityStatus } from "./browser-build.js";
 import chalk from "chalk";
 import { ALLOW_EVALUATE, ALLOW_UNSAFE_OPTIONS, CAPTCHA_AUTONOMOUS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, MAX_CONCURRENCY, MAX_QUEUE, MAX_SCREENSHOT_HEIGHT, MAX_SCREENSHOT_WIDTH, MAX_SESSIONS, SEQUENCE_TIMEOUT_MS, SERVER_VERSION, SESSION_TTL_MS, buildNetworkSecurityStatus } from "./config.js";
 import type { BrowsePayload, OutputMode, ScreenshotResult, SequencePayload, StatusPayload, SupportedOs } from "./types.js";
@@ -55,7 +56,7 @@ export function buildStatusPayload(): StatusPayload {
   let browserAvailable: boolean;
   let browserPath: string | undefined;
   try {
-    browserPath = String(launchPath());
+    browserPath = probeBrowserBinary();
     browserAvailable = true;
   } catch {
     browserAvailable = false;
@@ -66,6 +67,7 @@ export function buildStatusPayload(): StatusPayload {
     browser: "camoufox",
     browserAvailable,
     browserPath,
+    browserCompatibility: buildBrowserCompatibilityStatus(),
     headlessMode: defaultHeadlessMode(undefined),
     platform: process.platform,
     activeBrowsers: activeBrowserCount(),
@@ -161,6 +163,7 @@ export async function handleSnapshot(input: SnapshotToolInput) {
       response,
       requestGuard,
       diagnostics,
+      getLastNavigationResponse,
     }) => {
       const payload = await runGuardedPageRead(
         page,
@@ -171,6 +174,7 @@ export async function handleSnapshot(input: SnapshotToolInput) {
           input.maxChars ?? DEFAULT_MAX_CHARS,
           input.maxElements ?? DEFAULT_MAX_ELEMENTS,
           input.selector,
+          getLastNavigationResponse,
         ),
       );
       requestGuard.assertAllowed();
@@ -178,7 +182,7 @@ export async function handleSnapshot(input: SnapshotToolInput) {
       console.error(chalk.green(`[Camoufox] Successfully captured snapshot from ${safeUrl}.`));
 
       if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, getLastNavigationResponse(), payload, input.captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);
@@ -214,7 +218,7 @@ export async function handleSequence(input: SequenceToolInput) {
 
       const mode = input.outputMode ?? "text";
       const charLimit = input.maxChars ?? DEFAULT_MAX_CHARS;
-      const finalResponse = getLastNavigationResponse() ?? response;
+      const finalResponse = getLastNavigationResponse();
       const contentPayload = await runGuardedPageRead(
         page,
         requestGuard,
@@ -234,6 +238,7 @@ export async function handleSequence(input: SequenceToolInput) {
           charLimit,
           input.maxElements ?? DEFAULT_MAX_ELEMENTS,
           input.selector,
+          getLastNavigationResponse,
         ),
       );
       requestGuard.assertAllowed();
@@ -266,7 +271,7 @@ export async function handleSequence(input: SequenceToolInput) {
 
       console.error(chalk.green(`[Camoufox] Successfully ran ${actions.length} actions from ${safeUrl}.`));
       if (input.captchaPolicy) {
-        const finalResponse = getLastNavigationResponse() ?? response;
+        const finalResponse = getLastNavigationResponse();
         const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, finalResponse, payload, input.captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, (screenshotResult && screenshotResult.base64) ? screenshotResult : captchaScreenshot);
       }

@@ -3,6 +3,9 @@ sys.dont_write_bytecode = True
 
 import json
 import os
+import base64
+import hashlib
+import socket
 import subprocess
 import threading
 import time
@@ -28,16 +31,63 @@ class FixtureServer:
         self.httpd = None
         self.thread = None
         self.base_url = None
+        self.websocket_handshakes = 0
+        self.websocket_ready_messages = 0
 
     def start(self):
         if self.httpd:
             return
 
         fixtures = self.fixtures
+        fixture_server = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 parsed = urllib.parse.urlparse(self.path)
+                if parsed.path == "/websocket":
+                    if self.headers.get("Upgrade", "").lower() != "websocket":
+                        self.send_error(400)
+                        return
+                    key = self.headers.get("Sec-WebSocket-Key", "")
+                    accept = base64.b64encode(hashlib.sha1(
+                        (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")
+                    ).digest()).decode("ascii")
+                    message = b"websocket fixture connected"
+                    fixture_server.websocket_handshakes += 1
+                    # Send a real RFC 6455 upgrade and text frame so interception
+                    # must forward traffic, rather than merely suppress errors.
+                    self.wfile.write((
+                        "HTTP/1.1 101 Switching Protocols\r\n"
+                        "Upgrade: websocket\r\n"
+                        "Connection: Upgrade\r\n"
+                        f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
+                    ).encode("ascii"))
+                    self.wfile.flush()
+                    self.close_connection = True
+                    self.connection.settimeout(5)
+                    # Wait for client acknowledgement before replying, proving
+                    # both forwarding directions without a delivery timing gap.
+                    try:
+                        header = self.rfile.read(2)
+                        if len(header) != 2 or header[0] != 0x81 or header[1] != 0x85:
+                            return
+                        mask = self.rfile.read(4)
+                        payload = self.rfile.read(5)
+                        if len(mask) != 4 or len(payload) != 5:
+                            return
+                        ready = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+                        if ready != b"ready":
+                            return
+                        fixture_server.websocket_ready_messages += 1
+                        self.wfile.write(bytes([0x81, len(message)]) + message)
+                        self.wfile.flush()
+                        # Keep the socket alive until browser teardown, so an
+                        # immediate server close cannot outrun DOM delivery.
+                        self.rfile.read(1)
+                    except (socket.timeout, OSError):
+                        pass
+                    return
+
                 if parsed.path == "/example":
                     self._send_html("""<!doctype html>
 <html>
@@ -116,6 +166,54 @@ class FixtureServer:
         fixture_id = str(uuid.uuid4())
         self.fixtures[fixture_id] = html
         return f"{self.base_url}/fixture/{fixture_id}"
+
+    def websocket_url(self):
+        return self.url("/websocket").replace("http://", "ws://", 1)
+
+
+class PrivateWebSocketListener:
+    """Observe forbidden traffic on a port outside the fixture allowlist."""
+    def __init__(self, mode):
+        self.mode = mode
+        self.socket = None
+        self.thread = None
+        self.connected = threading.Event()
+        self.stopping = threading.Event()
+        self.received = b""
+
+    def __enter__(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind(("0.0.0.0", 0))
+        self.socket.listen(1)
+        self.socket.settimeout(0.1)
+        port = self.socket.getsockname()[1]
+        host = "host.docker.internal" if self.mode == "docker" else "127.0.0.1"
+        self.url = f"ws://{host}:{port}/private-socket"
+        self.thread = threading.Thread(target=self._listen, daemon=True)
+        self.thread.start()
+        return self
+
+    def _listen(self):
+        while not self.stopping.is_set():
+            try:
+                connection, _ = self.socket.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            self.connected.set()
+            with connection:
+                connection.settimeout(0.5)
+                try:
+                    self.received = connection.recv(8192)
+                except (socket.timeout, OSError):
+                    pass
+            return
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.stopping.set()
+        self.socket.close()
+        self.thread.join(timeout=1)
 
 
 class MCPTestClient:
