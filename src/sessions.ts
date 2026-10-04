@@ -356,7 +356,15 @@ export async function handleSessionAction(input: SessionActionToolInput) {
       return buildSuccessContent(mergedPayload, captchaScreenshot);
     });
   } catch (error) {
-    return buildToolError(`Failed to run session action. Error: ${sessionSanitizedError(error, session)}`);
+    // Failed actions skip the success-path guard check. Read its recorded
+    // denial after runSessionExclusive has completed any timeout cleanup.
+    let actionError = error;
+    try {
+      session?.requestGuard.assertAllowed();
+    } catch (blockedRequestError) {
+      actionError = blockedRequestError;
+    }
+    return buildToolError(`Failed to run session action. Error: ${sessionSanitizedError(actionError, session)}`);
   }
 }
 
