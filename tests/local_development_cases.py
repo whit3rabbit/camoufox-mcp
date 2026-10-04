@@ -94,8 +94,8 @@ class LocalDevelopmentCases:
                 <h1>Unlisted resource</h1>
                 <script>fetch('http://127.0.0.1:80/').catch(() => {});</script>
             """).replace("127.0.0.1", hostname)
-            denied = client._call_tool("browse", {"url": blocked_resource_url, "geoip": False}, timeout=30)
-            assert denied and denied.get("result", {}).get("isError"), denied
+            denied = client._call_tool("browse", {"url": blocked_resource_url, "geoip": False, "timeout": 10000}, timeout=45)
+            assert denied and denied.get("result", {}).get("isError"), f"Unlisted resource denial missing: {denied}"
             assert "blocked unsafe browser request" in client.get_tool_text(denied).lower(), denied
         finally:
             client.stop_server()
