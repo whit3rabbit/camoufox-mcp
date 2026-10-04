@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { ALLOWED_PRIVATE_HOSTS } from "./config.js";
+import { ALLOWED_PRIVATE_HOSTS, readAllowedPrivateHosts } from "./config.js";
 
 const allowedPrivateHosts = new Set(ALLOWED_PRIVATE_HOSTS);
 
@@ -293,10 +293,18 @@ function isPrivateDevelopmentAddress(address: string): boolean {
 }
 
 function privateHostHint(hostname: string): string {
-  if (allowedPrivateHosts.has(hostname) || (!hostname.endsWith(".test") && !isBlockedHostname(hostname))) {
+  if (allowedPrivateHosts.has(hostname)) {
     return "";
   }
-  return ` For a trusted local development host, set CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=${hostname} in the server environment and restart.`;
+  try {
+    const parsedHosts = readAllowedPrivateHosts(hostname);
+    if (parsedHosts.length !== 1 || parsedHosts[0] !== hostname) {
+      return "";
+    }
+  } catch {
+    return "";
+  }
+  return ` For a trusted host resolving to loopback or private-network addresses, set CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=${hostname} in the MCP server environment (append to any existing list), then restart the MCP server.`;
 }
 
 export function parseAndValidateTargetUrl(rawUrl: string): ParsedTargetUrl {
@@ -338,7 +346,10 @@ export function parseAndValidateTargetUrl(rawUrl: string): ParsedTargetUrl {
     }
 
     if (isBlockedIp(hostname)) {
-      throw new Error("Private, local, or reserved IP addresses are not allowed.");
+      const hint = isPrivateDevelopmentAddress(hostname)
+        ? " For a trusted private endpoint, use a resolvable DNS hostname and add that hostname to CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS in the MCP server environment, then restart the MCP server. IP literals cannot be allowlisted."
+        : "";
+      throw new Error(`Private, local, or reserved IP addresses are not allowed.${hint}`);
     }
     return {
       parsed,
@@ -374,9 +385,13 @@ export async function validateTargetUrl(rawUrl: string): Promise<URL> {
 
   // Opt-in applies only to this exact hostname and ordinary development-network
   // addresses. Metadata, link-local, multicast, and reserved ranges stay denied.
-  if (records.some((record) => isBlockedIp(record.address)
-    && !(allowedPrivateHosts.has(hostname) && isPrivateDevelopmentAddress(record.address)))) {
-    throw new Error(`URL host resolves to a private, local, or reserved address.${privateHostHint(hostname)}`);
+  const blockedRecords = records.filter((record) => isBlockedIp(record.address));
+  if (blockedRecords.some((record) => !(allowedPrivateHosts.has(hostname) && isPrivateDevelopmentAddress(record.address)))) {
+    // Suggest opt-in only when it could allow the complete DNS result set.
+    const hint = blockedRecords.every((record) => isPrivateDevelopmentAddress(record.address))
+      ? privateHostHint(hostname)
+      : "";
+    throw new Error(`URL host resolves to a private, local, or reserved address.${hint}`);
   }
 
   return parsed;

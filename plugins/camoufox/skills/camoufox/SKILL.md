@@ -1,6 +1,6 @@
 ---
 name: camoufox
-description: Browser automation with Camoufox MCP. Use when an agent needs to browse a URL, extract page text or structure, fill or submit forms, click through a page, screenshot, run diagnostics, drive a multi-step interactive browser session, or tune privacy and anti-detection options through the camoufox-mcp-server MCP server. Also use when a fetch or HTTP request gets blocked, returns a bot wall, or needs a real browser fingerprint.
+description: Browser automation with Camoufox MCP. Use when an agent needs to browse a URL, extract page text or structure, fill or submit forms, click through a page, screenshot, run diagnostics, drive a multi-step interactive browser session, or tune privacy and anti-detection options through the camoufox-mcp-server MCP server. Also use when a fetch or HTTP request gets blocked, returns a bot wall, needs a real browser fingerprint, or Camoufox URL policy blocks a private development hostname.
 ---
 
 # Camoufox Browser Automation
@@ -110,10 +110,36 @@ Fields worth reading:
 - `maxConcurrency`, `maxQueue`, `maxSessions`, `sessionTtlMs`: capacity limits. Sessions auto-expire after `sessionTtlMs`; don't start more than `maxSessions`.
 - `activeSessions`, `queuedRequests`: current load.
 - `networkSecurity`: the server's application-layer URL policy. `ssrfPolicy: "app_layer_best_effort"` means best-effort SSRF filtering, not proof of network isolation. Check `warning` and `strictSandboxRequired`.
+- `networkSecurity.allowedPrivateHosts`: exact hostnames allowed to resolve to loopback or private addresses. This is a server startup setting; an empty list keeps the default private-host block.
 
 The active default wait strategy and stealth profile are advertised separately, during MCP `initialize`, at `result.capabilities.extensions["camoufox-mcp"].policy` (`defaultWaitStrategy`, `defaultStealthProfile`) — not in the `camoufox_status` body.
 
 Packaged plugin default: the bundled config sets `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`. Bare server installs do not. Do not add `CAMOUFOX_MCP_ALLOW_EVALUATE` unless the user or project config explicitly opts in.
+
+## Private development hosts
+
+The default URL policy blocks local/private addresses, including DNS names that resolve to them. The opt-in works with any exact hostname, such as `localhost`, `laravel.test`, `app.local`, `dashboard.internal`, or `intranet.corp`; it is not restricted to a domain suffix.
+
+Read the full MCP error when a URL or resource is blocked. For an eligible private hostname, the error includes a remedy such as `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=dashboard.internal` and a server restart instruction. The hint refers to the blocked resource's hostname, which may differ from the page hostname.
+
+For the trusted private hosts required by the user's task:
+
+1. Add their exact hostnames to the existing MCP server's `env` configuration, preserving current entries:
+
+   ```json
+   {
+     "CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS": "localhost,laravel.test,dashboard.internal"
+   }
+   ```
+
+2. Restart the MCP server through the host. Changing your shell environment does not update a running server. Use the host CLI or operator instructions when its configuration cannot be edited directly.
+3. Confirm `camoufox_status.networkSecurity.allowedPrivateHosts` contains the requested hostname, then retry the original browser call. Restarted sessions require a new `sessionId`. If the status field is absent, use a server build containing this feature, currently available from repository `main`; older published packages can ignore the setting.
+
+Names must resolve through DNS or hosts entries in the environment running Node and the browser, including a container or VM. Entries are comma-separated hostnames, with no wildcard, URL, port, or IP literal. Each private asset or redirect hostname needs its own entry. For a direct loopback or ordinary private-IP URL, configure a resolvable hostname and browse using that name.
+
+This setting is not a tool argument. `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`, Firefox preferences, and test-only localhost settings do not replace it. Metadata, link-local, multicast, unspecified, and reserved addresses remain blocked even for listed hosts; an error without an opt-in remedy may identify one of those addresses. Add only hosts required by the user's task.
+
+Read [private-host JSON-RPC setup](references/json-rpc-debug.md#test-a-private-development-host) when debugging the startup environment or an error hint.
 
 ## Common Calls
 
@@ -309,6 +335,7 @@ If Hermes reports an ambiguous `camoufox` skill, keep only one installed Camoufo
 Common failures:
 
 - **Missing tools**: server not installed/enabled, or plugin installed but not reloaded.
+- **Private/local host rejected**: read the MCP error's `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` remedy and follow [private development hosts](#private-development-hosts). Add exact required hostnames to server `env`, restart, and verify status before retrying.
 - **Unsafe option rejected**: `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` not set, or a denied pref/arg was sent. The server logs which option family it rejected.
 - **`evaluate` rejected**: `CAMOUFOX_MCP_ALLOW_EVALUATE` not set (`evaluateAllowed: false`).
 - **Hanging navigation**: a call overrode `waitStrategy` to `load`/`networkidle`; revert to `domcontentloaded` and try a shorter `timeout`.
