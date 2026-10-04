@@ -3,7 +3,7 @@ import subprocess
 import threading
 import time
 
-from harness import MCPTestClient, TEST_ENV
+from harness import MCPTestClient, PrivateWebSocketListener, TEST_ENV
 
 class SessionCases:
     def test_call_tool_session_flow_and_max_sessions(self):
@@ -386,6 +386,59 @@ class SessionCases:
                 assert close_response and not close_response.get("result", {}).get("isError"), close_response
             session_client.stop_server()
         print("CallTool concurrent session max enforcement test passed.")
+
+    def test_call_tool_session_action_failure_reports_private_host_policy(self):
+        print("--- Running Test: Call Tool - Failed Session Action Reports Private Host Policy ---")
+        # The TCP listener also records forbidden HTTP connections.
+        with PrivateWebSocketListener(self.mode) as listener:
+            hostname = "host.docker.internal" if self.mode == "docker" else "localhost"
+            private_url = listener.url.replace("ws://", "http://", 1).replace("127.0.0.1", hostname)
+            private_url += "?token=action-private-secret"
+            html = f"""<!doctype html>
+<html>
+<body>
+  <button id="load" onclick="setTimeout(() => {{
+    fetch('{private_url}').then(() => {{
+      const ready = document.createElement('p');
+      ready.id = 'ready';
+      ready.textContent = 'private resource loaded';
+      document.body.appendChild(ready);
+    }}).catch(() => {{}});
+  }}, 1800);">Load private resource</button>
+</body>
+</html>"""
+            start = self._run_tool("browse_session_start", {"geoip": False, "humanize": False}, timeout=90)
+            session_id = self.get_tool_payload(start)["sessionId"]
+            try:
+                self._run_tool("browse_session_navigate", {
+                    "sessionId": session_id,
+                    "url": self._fixture_url(html),
+                    "maxChars": 1000,
+                }, timeout=90)
+                # Arm the request after successful navigation, then wait while
+                # policy rejection prevents the element from appearing.
+                self._run_tool("browse_session_action", {
+                    "sessionId": session_id,
+                    "action": {"type": "click", "selector": "#load"},
+                    "maxChars": 1000,
+                    "maxElements": 20,
+                }, timeout=30)
+                response = self._call_tool("browse_session_action", {
+                    "sessionId": session_id,
+                    "action": {"type": "waitFor", "selector": "#ready", "timeout": 3000},
+                }, timeout=15)
+                assert response and response.get("result", {}).get("isError"), response
+                error = self.get_tool_text(response)
+                assert "blocked unsafe browser request" in error.lower(), error
+                assert f"CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS={hostname}" in error, error
+                assert "restart the MCP server" in error, error
+                assert "action-private-secret" not in error, error
+                assert "token=" not in error, error
+                assert not listener.connected.is_set(), listener.received
+            finally:
+                closed = self._run_tool("browse_session_close", {"sessionId": session_id}, timeout=30)
+                assert self.get_tool_payload(closed)["closed"] is True, closed
+        print("CallTool failed session action private-host guidance test passed.")
 
     def test_call_tool_session_rejects_delayed_private_request(self):
         print("--- Running Test: Call Tool - Session Reject Delayed Private Request ---")

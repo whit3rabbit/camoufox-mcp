@@ -195,13 +195,19 @@ export async function runSequenceActionsWithBudget(
 ): Promise<SequenceActionResult[]> {
   const actions: SequenceActionResult[] = [];
 
-  await withTimeout((async () => {
-    for (let index = 0; index < actionsInput.length; index += 1) {
-      const result = await runSequenceAction(page, actionsInput[index], index, rawUrls, secrets);
-      actions.push(result);
-      await settleAndAssertSafe(page, requestGuard);
-    }
-  })(), SEQUENCE_TIMEOUT_MS, "Browse sequence");
+  try {
+    await withTimeout((async () => {
+      for (let index = 0; index < actionsInput.length; index += 1) {
+        const result = await runSequenceAction(page, actionsInput[index], index, rawUrls, secrets);
+        actions.push(result);
+        await settleAndAssertSafe(page, requestGuard);
+      }
+    })(), SEQUENCE_TIMEOUT_MS, "Browse sequence");
+  } catch (actionError) {
+    // Network rejection can fail an action before its post-action guard check.
+    requestGuard.assertAllowed();
+    throw actionError;
+  }
 
   return actions;
 }

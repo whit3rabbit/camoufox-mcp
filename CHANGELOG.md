@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Private-host DNS denial errors provide the exact environment setting for eligible development, corporate, and custom names. Session and sequence action failures preserve pending policy errors. Metadata, link-local, AWS local-services, and reserved DNS results do not suggest an allowlist exception.
 - Navigation retries once when the network response used the requested URL but the committed document gained duplicate path separators. One-shot tools and sessions share the check, preserve legitimate redirects, and keep the retry within the navigation timeout. Regression tests simulate the reported drift; the original intermittent engine fault has not been reproduced. Fixes #28.
 
 ## [2.6.0] - 2026-10-03

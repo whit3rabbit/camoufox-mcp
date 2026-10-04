@@ -30,10 +30,12 @@ By default, URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, l
 
 ### Local development sites
 
-To browse a local site such as `http://laravel.test/api-documentation`, add its hostname to the MCP server's environment and restart the server:
+Source builds from `main` support this setting. npm/npx installs gain it in the next tagged release.
+
+To browse a local or private site, add its exact hostname to the MCP server's environment and restart the server. Examples include `localhost`, `laravel.test`, `app.local`, `app.internal`, corporate names, and custom DNS names that resolve to private addresses:
 
 ```bash
-CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=laravel.test node dist/index.js
+CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=localhost,laravel.test,app.internal node dist/index.js
 ```
 
 For an MCP host configuration, set the same variable in the server's `env` object:
@@ -44,13 +46,17 @@ For an MCP host configuration, set the same variable in the server's `env` objec
 }
 ```
 
-Configure each hostname in your local DNS or hosts file so both Node and the browser can resolve it. Containers need their own name resolution and a reachable development server.
+Configure each hostname in DNS or the hosts file used by both Node and the browser. Run these checks in the same container or VM as the MCP server. A container's `localhost` points to that container, so a host-side development server needs a reachable address and corresponding DNS or hosts entry.
+
+For a hostname denied because it resolves to ordinary private or loopback addresses, the error includes the exact `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=<hostname>` setting. The suffix does not determine eligibility: custom DNS names receive the same guidance when their resolved addresses qualify. DNS lookup failures require a DNS or hosts fix first.
 
 Entries match exact hostnames after case and trailing-dot normalization. Wildcards, URLs, ports, and IP literals are rejected. Allowlisting `laravel.test` does not allow `assets.laravel.test` or a direct `127.0.0.1` URL. Add each required hostname explicitly. Allowed hostnames may resolve to loopback, RFC1918 private IPv4, or IPv6 unique-local addresses; metadata, link-local, unspecified, multicast, and reserved addresses remain blocked. DNS failures remain errors.
 
 The [AWS local-services range](https://docs.aws.amazon.com/vpc/latest/userguide/subnet-route-tables.html) `fd00:ec2::/32`, including the [IPv6 instance metadata endpoint](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html), also remains blocked.
 
-The exception applies to navigation, intercepted resources and WebSockets, and proxy URLs. Any page loaded by the server can request an allowlisted host. Only configure hostnames you intend to make reachable by browser tools. `camoufox_status.networkSecurity.allowedPrivateHosts` and `initialize.result.capabilities.extensions["camoufox-mcp"].policy.allowedPrivateHosts` report the active list.
+The exception applies to navigation, intercepted resources and WebSockets, and proxy URLs. Any page loaded by the server can request an allowlisted host. Only configure hostnames you intend to make reachable by browser tools. After restarting, check `camoufox_status.networkSecurity.allowedPrivateHosts` or `initialize.result.capabilities.extensions["camoufox-mcp"].policy.allowedPrivateHosts` for the active list.
+
+`CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` is read from the server environment at startup. There is no per-call `browse` parameter, and `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` does not enable private hosts. Allowlisting cannot resolve a denial for metadata, link-local, AWS local-services, or reserved addresses.
 
 When unsafe browser options are sent without `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`, the server rejects the request and logs a warning naming the rejected option family. Denied unsafe prefs and args remain rejected even when unsafe options are enabled.
 

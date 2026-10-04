@@ -101,6 +101,25 @@ const p = spawn('node', ['dist/index.js'], {
 });
 ```
 
+## Test a Private Development Host
+
+For a trusted private hostname, add the allowlist to the local checkout's spawned server environment:
+
+```js
+env: {
+  ...process.env,
+  CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS: 'localhost,laravel.test,dashboard.internal'
+}
+```
+
+Preserve existing entries when editing an MCP host configuration. The setting supports any exact hostname that resolves to an ordinary private or loopback address, not only `.test` or `localhost`. Node and the browser must both resolve the name in their own environment. IP literals, URLs, ports, and wildcards are not valid entries.
+
+Restart the server and check `camoufox_status.networkSecurity.allowedPrivateHosts`, then send the `browse` request with your development URL. The startup list is also exposed at `initialize.result.capabilities.extensions["camoufox-mcp"].policy.allowedPrivateHosts`. An absent status field means the server build does not support this setting; use repository `main` or a release containing the feature.
+
+On an eligible private-host denial, `tools/call` returns `isError: true` and text containing the exact `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=<hostname>` setting and restart instruction. Read that text even when `structuredContent` is absent. The blocked hostname can belong to a resource, redirect, or proxy rather than the initial page.
+
+Configure server `env`, not tool arguments or unsafe browser options. The allowlist cannot permit metadata, link-local, multicast, or reserved addresses; those errors do not offer this remedy.
+
 ## Test Browser Compatibility Mode
 
 With the optional launcher installed on Node >=22.15, run `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npm run fetch:camoufox` and the same command prefix for doctor. Add `CAMOUFOX_MCP_BROWSER_COMPATIBILITY: '1'` to the spawned process environment. Use the same `CAMOUFOX_INSTALL_DIR` if you override the separate compatibility cache.

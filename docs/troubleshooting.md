@@ -73,10 +73,12 @@ issues below in one command.
     - Check available space in the install directory and OS temporary directory. Failed downloads can leave installer scratch directories behind, especially on hosts with a small temporary filesystem.
     - Inspect those directories and confirm each is abandoned and unused by a live installer before removing that exact directory. Retry the pinned fetch after freeing space.
 
-13. **"URL host resolves to a private, local, or reserved address" for a development site**
-    - Set `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=laravel.test` in the MCP server's environment, then restart it. Use your site's exact hostname and add separate entries for local asset hosts.
-    - The hostname must resolve in both the server and browser environments. This setting does not create DNS entries or make a host-side server reachable from Docker.
-    - The default block prevents browser tools from probing local services. The opt-in allows loopback and private addresses for named hosts; metadata, link-local, and reserved addresses stay blocked. See [local development sites](server-policy.md#local-development-sites).
+13. **"Local hostnames are not allowed" or "URL host resolves to a private, local, or reserved address" for a development site**
+    - Source builds from `main` support `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS`; npm/npx installs gain it in the next tagged release. For ordinary private-host DNS results, the denial error gives the exact environment setting for that hostname.
+    - Set a comma-separated list such as `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=localhost,laravel.test,app.internal` in the MCP server's environment, then restart it. Exact names work for `.test`, `.local`, `.internal`, corporate, and custom DNS hosts. Add each asset hostname separately.
+    - Check `camoufox_status.networkSecurity.allowedPrivateHosts` after restart. This is not a `browse` parameter, and `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` does not enable it. Entries cannot contain IP literals, wildcards, URLs, or ports.
+    - Resolve the hostname from the same container or VM as the server and browser. Fix DNS or hosts entries for "Could not resolve URL host". Container `localhost` refers to the container, so allowlisting alone cannot reach a host-side server.
+    - Metadata, link-local, AWS local-services, and reserved addresses remain blocked even for allowlisted names. These denials cannot be fixed with this setting. See [local development sites](server-policy.md#local-development-sites) for address scope.
 
 ### Debug Mode
 

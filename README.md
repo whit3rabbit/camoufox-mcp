@@ -166,6 +166,26 @@ pi install npm:pi-mcp-adapter
 }
 ```
 
+### Local and private development sites
+
+Local and private hosts are blocked by default. Source builds from `main` support an explicit hostname allowlist. npm/npx installs gain this setting in the next tagged release.
+
+Add an `env` entry to your MCP server configuration:
+
+```json
+{
+  "env": {
+    "CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS": "localhost,laravel.test,app.internal"
+  }
+}
+```
+
+Restart the MCP server, then check `camoufox_status.networkSecurity.allowedPrivateHosts`. Configure DNS or hosts entries in the same container or VM as the server and browser. Corporate and custom DNS names also work when explicitly listed.
+
+For eligible private hosts, the MCP error text includes the exact allowlist setting and restart instruction. Read the full error and append the required hostname to any existing list.
+
+Entries are exact hostnames, without IP literals, wildcards, URLs, or ports. This is a server environment setting, separate from `browse` parameters and `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. Metadata, link-local, and reserved addresses remain blocked. See [local development policy](docs/server-policy.md#local-development-sites) for scope.
+
 ## Try Camoufox
 
 Once configured, ask your assistant for browser work in plain language:

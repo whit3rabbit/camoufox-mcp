@@ -184,6 +184,30 @@ class SequenceCases:
         assert "blocked unsafe browser request" in self.get_tool_text(response).lower()
         print("CallTool sequence private redirect rejection test passed.")
 
+    def test_call_tool_sequence_failure_reports_private_host_policy(self):
+        print("--- Running Test: Sequence Failure Reports Private Host Policy ---")
+        html = """<!doctype html>
+<html>
+<body>
+  <button id="arm" onclick="setTimeout(() => fetch('http://blocked.localhost:80/private?token=sequence-policy-secret#fragment').catch(() => {}), 1500)">Arm request</button>
+</body>
+</html>"""
+        response = self._call_tool("browse_sequence", {
+            "url": self._fixture_url(html),
+            "actions": [
+                {"type": "click", "selector": "#arm"},
+                {"type": "waitFor", "selector": "#missing", "timeout": 3000},
+            ],
+            "geoip": False,
+        }, timeout=90)
+        assert response and response.get("result", {}).get("isError"), response
+        error = self.get_tool_text(response)
+        assert "blocked unsafe browser request" in error.lower(), response
+        assert "CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=blocked.localhost" in error, response
+        assert "restart" in error.lower(), response
+        assert "sequence-policy-secret" not in error and "#fragment" not in error, response
+        print("Sequence failed-action policy guidance test passed.")
+
     def test_call_tool_sequence_rejects_evaluate_by_default(self):
         print("--- Running Test: Call Tool - Browse Sequence Reject Evaluate By Default ---")
         response = self._call_tool("browse_sequence", {

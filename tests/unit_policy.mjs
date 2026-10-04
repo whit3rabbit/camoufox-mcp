@@ -101,6 +101,73 @@ runPrivateHostScenario("", `
   await assert.rejects(validateBrowserRequestUrl("ws://laravel.test/socket"), /private, local, or reserved/);
   await assert.rejects(validateProxyConfig("http://laravel.test:8080"), /Proxy server is not allowed/);
   assert.deepEqual(buildNetworkSecurityStatus().allowedPrivateHosts, []);
+
+  for (const [hostname, expectedHost, address] of [
+    ["api.internal", "api.internal", "10.20.30.40"],
+    ["APP.CORP.", "app.corp", "192.168.10.20"],
+    ["customname", "customname", "127.0.0.1"],
+    ["dashboard.example", "dashboard.example", "fd00::1"],
+  ]) {
+    addresses = ["93.184.216.34", address];
+    const actionableError = (error) => {
+      assert.match(error.message, /private, local, or reserved/);
+      assert.ok(error.message.includes("CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=" + expectedHost), error.message);
+      assert.match(error.message, /server environment/);
+      assert.match(error.message, /restart/);
+      return true;
+    };
+    await assert.rejects(validateTargetUrl("http://" + hostname + "/"), actionableError);
+    await assert.rejects(validateBrowserRequestUrl("ws://" + hostname + "/socket"), actionableError);
+    await assert.rejects(validateProxyConfig("http://" + hostname + ":8080"), actionableError);
+  }
+
+  for (const address of ["169.254.169.254", "192.0.2.5", "100.64.0.1", "0.0.0.0", "fd00:ec2::254", "fe80::1", "ff00::1"]) {
+    for (const records of [[address], ["127.0.0.1", address]]) {
+      addresses = records;
+      for (const hostname of ["laravel.test", "api.internal"]) {
+        await assert.rejects(validateTargetUrl("http://" + hostname + "/"), (error) => {
+          assert.match(error.message, /private, local, or reserved/);
+          assert.doesNotMatch(error.message, /CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS/, "the allowlist cannot enable this DNS record set");
+          return true;
+        });
+      }
+    }
+  }
+
+  addresses = ["127.0.0.1"];
+  for (const hostname of ["invalid_name.internal", "app$(id).internal", "app,db.internal"]) {
+    await assert.rejects(validateTargetUrl("http://" + hostname + "/"), (error) => {
+      assert.match(error.message, /private, local, or reserved/);
+      assert.doesNotMatch(error.message, /CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS/, "invalid allowlist hostnames must not receive an impossible remedy");
+      return true;
+    });
+  }
+
+  for (const address of ["127.0.0.1", "10.0.0.1", "192.168.0.1", "::1", "fd00::1", "::ffff:127.0.0.1"]) {
+    assert.throws(() => parseAndValidateTargetUrl(address.includes(":") ? "http://[" + address + "]/" : "http://" + address + "/"), (error) => {
+      assert.match(error.message, /not allowed/);
+      assert.match(error.message, /resolvable DNS hostname/);
+      assert.match(error.message, /CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS/);
+      assert.match(error.message, /restart/);
+      assert.ok(!error.message.includes("CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=" + address), "IP literals cannot be allowlisted");
+      return true;
+    });
+  }
+  for (const address of ["169.254.169.254", "192.0.2.5", "fd00:ec2::254", "fe80::1", "ff00::1"]) {
+    assert.throws(() => parseAndValidateTargetUrl(address.includes(":") ? "http://[" + address + "]/" : "http://" + address + "/"), (error) => {
+      assert.match(error.message, /not allowed/);
+      assert.doesNotMatch(error.message, /CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS/, "these IPs cannot be enabled through hostname aliases");
+      return true;
+    });
+  }
+`);
+
+runPrivateHostScenario("api.internal,app.corp,customname,dashboard.example", `
+  for (const [hostname, address] of [["api.internal", "10.20.30.40"], ["app.corp", "192.168.10.20"], ["customname", "127.0.0.1"], ["dashboard.example", "fd00::1"]]) {
+    addresses = [address];
+    await assert.doesNotReject(validateTargetUrl("http://" + hostname + "/"), "the advertised exact-host remedy must work after restart");
+    await assert.doesNotReject(validateBrowserRequestUrl("ws://" + hostname + "/socket"));
+  }
 `);
 
 runPrivateHostScenario(" Laravel.TEST.,localhost,dev.local,laravel.test ", `
@@ -124,7 +191,11 @@ runPrivateHostScenario(" Laravel.TEST.,localhost,dev.local,laravel.test ", `
 
   for (const address of ["0.0.0.0", "169.254.169.254", "100.64.0.1", "100.127.255.255", "192.0.0.1", "192.0.2.5", "192.88.99.1", "198.18.0.1", "198.51.100.1", "203.0.113.1", "224.0.0.1", "::", "64:ff9b::1", "64:ff9b:1::1", "100::1", "2001::1", "2001:db8::1", "2002::1", "fe80::1", "ff00::1", "::ffff:a9fe:a9fe", "fd00:ec2::254", "fd00:0ec2:0000:0000:0000:0000:0000:0254", "fd00:ec2:abcd:1::1"]) {
     addresses = ["127.0.0.1", address];
-    await assert.rejects(validateTargetUrl("http://laravel.test/"), /private, local, or reserved/, address + " remains denied for allowlisted hosts");
+    await assert.rejects(validateTargetUrl("http://laravel.test/"), (error) => {
+      assert.match(error.message, /private, local, or reserved/);
+      assert.doesNotMatch(error.message, /CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS/, "already-listed hosts cannot opt out of unsafe address restrictions");
+      return true;
+    }, address + " remains denied for allowlisted hosts");
     await assert.rejects(validateBrowserRequestUrl("ws://laravel.test/socket"), /private, local, or reserved/);
   }
 
