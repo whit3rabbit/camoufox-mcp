@@ -46,6 +46,7 @@ export const networkSecurityOutputSchema = z.object({
   sandboxMode: z.enum(["unknown", "declared", "docker", "strict-declared"]),
   sandboxDeclared: z.boolean(),
   strictSandboxRequired: z.boolean(),
+  allowedPrivateHosts: z.array(z.string()),
   warning: z.string().optional(),
 });
 

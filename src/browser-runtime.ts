@@ -1,8 +1,8 @@
 import { Camoufox, type LaunchOptions } from "camoufox-js";
 import type { Browser, BrowserContext, Page, Response, Route } from "playwright-core";
 import chalk from "chalk";
-import { parseAndValidateBrowserRequestUrl, validateBrowserRequestUrl, validateTargetUrl } from "./policy.js";
-import { DEFAULT_WAIT_STRATEGY, GUARD_SETTLE_MS, LAUNCH_TIMEOUT_MS, MAX_CONCURRENCY, MAX_GUARDED_REQUESTS, MAX_QUEUE, QUEUE_TIMEOUT_MS } from "./config.js";
+import { normalizeHostname, parseAndValidateBrowserRequestUrl, validateBrowserRequestUrl, validateTargetUrl } from "./policy.js";
+import { ALLOWED_PRIVATE_HOSTS, DEFAULT_WAIT_STRATEGY, GUARD_SETTLE_MS, LAUNCH_TIMEOUT_MS, MAX_CONCURRENCY, MAX_GUARDED_REQUESTS, MAX_QUEUE, QUEUE_TIMEOUT_MS } from "./config.js";
 import { createDiagnosticsCollector } from "./diagnostics.js";
 import { browserContextOptions, buildCamoufoxOptions, validateCommonBrowserInput } from "./browser-options.js";
 import { assertBrowserBinaryAvailable } from "./browser-preflight.js";
@@ -10,6 +10,7 @@ import { probeBrowserBinary } from "./browser-preflight.js";
 import { BROWSER_COMPATIBILITY, EXPECTED_BROWSER_BUILD } from "./browser-build.js";
 import { launchCompatibilityBrowser } from "./browser-compatibility.js";
 import { trackNavigationResponses } from "./navigation-response.js";
+import { navigateWithDocumentUrlCorrection } from "./navigation.js";
 import type { BrowserInstance, BrowserOperationContext, CamoufoxOptions, CommonBrowserInput, PendingBrowse, RequestGuard, SlotRelease } from "./types.js";
 import { applyStealthProfile, defaultHeadlessMode, describeError, getProxySecrets, getProxyServer, redactUrl, selectOperatingSystem, withTimeout } from "./utils.js";
 
@@ -224,24 +225,20 @@ export async function runBrowserOperation<T>(
 
       let response: Response | null;
       try {
-        response = await page.goto(targetUrl.toString(), {
+        response = await navigateWithDocumentUrlCorrection(page, targetUrl, {
           waitUntil: waitStrategy,
           timeout: effectiveInput.timeout,
-        });
+        }, () => settleAndAssertSafe(page, requestGuard));
       } catch (navigationError) {
+        requestGuard.assertAllowed();
         const navigationErrorMessage = describeError(navigationError).toLowerCase();
-        if (/\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback|::1)\b/.test(navigationErrorMessage)) {
+        if (!ALLOWED_PRIVATE_HOSTS.includes(normalizeHostname(targetUrl.hostname))
+          && /\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback|::1)\b/.test(navigationErrorMessage)) {
           throw new Error(`Blocked unsafe browser request to ${safeUrl}.`, { cause: navigationError });
         }
 
-        requestGuard.assertAllowed();
         throw navigationError;
       }
-
-      await page.waitForTimeout(GUARD_SETTLE_MS);
-      requestGuard.assertAllowed();
-      await validateTargetUrl(page.url());
-      requestGuard.assertAllowed();
 
       return await callback({
         page,

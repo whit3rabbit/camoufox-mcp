@@ -73,6 +73,11 @@ issues below in one command.
     - Check available space in the install directory and OS temporary directory. Failed downloads can leave installer scratch directories behind, especially on hosts with a small temporary filesystem.
     - Inspect those directories and confirm each is abandoned and unused by a live installer before removing that exact directory. Retry the pinned fetch after freeing space.
 
+13. **"URL host resolves to a private, local, or reserved address" for a development site**
+    - Set `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=laravel.test` in the MCP server's environment, then restart it. Use your site's exact hostname and add separate entries for local asset hosts.
+    - The hostname must resolve in both the server and browser environments. This setting does not create DNS entries or make a host-side server reachable from Docker.
+    - The default block prevents browser tools from probing local services. The opt-in allows loopback and private addresses for named hosts; metadata, link-local, and reserved addresses stay blocked. See [local development sites](server-policy.md#local-development-sites).
+
 ### Debug Mode
 
 To see detailed logs, run the server directly:

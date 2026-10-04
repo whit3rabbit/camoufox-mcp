@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { isIP } from "node:net";
 import type { NetworkSandboxMode, NetworkSecurityStatus, StealthProfile, SupportedOs, WaitStrategy } from "./types.js";
 
 export const SERVER_VERSION = "2.6.0";
@@ -19,6 +20,28 @@ export const ALLOW_EVALUATE = process.env.CAMOUFOX_MCP_ALLOW_EVALUATE === "1";
 export const CAPTCHA_AUTONOMOUS = process.env.CAPTCHA_AUTONOMOUS === "true";
 export const NETWORK_SANDBOX_DECLARED = process.env.CAMOUFOX_MCP_NETWORK_SANDBOX === "1";
 export const REQUIRE_NETWORK_SANDBOX = process.env.CAMOUFOX_MCP_REQUIRE_NETWORK_SANDBOX === "1";
+
+export function readAllowedPrivateHosts(raw = ""): readonly string[] {
+  const hosts = raw.split(",").map((host) => host.trim().toLowerCase().replace(/\.$/, "")).filter(Boolean);
+  for (const host of hosts) {
+    const validLabels = host.length <= 253 && host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+    let validDnsHost = false;
+    // URL parsing also rejects alternate numeric spellings of IP literals.
+    if (validLabels) {
+      try {
+        validDnsHost = isIP(new URL(`http://${host}/`).hostname) === 0;
+      } catch {
+        validDnsHost = false;
+      }
+    }
+    if (!validDnsHost) {
+      throw new Error("CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS must contain comma-separated exact DNS hostnames, without wildcards, URLs, ports, or IP literals.");
+    }
+  }
+  return Object.freeze([...new Set(hosts)]);
+}
+
+export const ALLOWED_PRIVATE_HOSTS = readAllowedPrivateHosts(process.env.CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS);
 
 export const SUPPORTED_OSES: readonly SupportedOs[] = ["windows", "macos", "linux"] as const;
 export const DENIED_BROWSER_ARG_FLAGS = new Set([
@@ -130,6 +153,7 @@ export function buildNetworkSecurityStatus(): NetworkSecurityStatus {
     sandboxMode,
     sandboxDeclared: NETWORK_SANDBOX_DECLARED,
     strictSandboxRequired: REQUIRE_NETWORK_SANDBOX,
+    allowedPrivateHosts: [...ALLOWED_PRIVATE_HOSTS],
     warning,
   };
 }

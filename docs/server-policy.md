@@ -6,6 +6,7 @@ The server applies deny-by-default policy checks before and during browsing:
 |----------|---------|-------------|
 | `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` | unset | Set to `1` to allow `args`, `firefox_user_prefs`, and `exclude_addons` |
 | `CAMOUFOX_MCP_ALLOW_EVALUATE` | unset | Set to `1` to allow `browse_sequence` evaluate actions. This is unsafe because page JavaScript can read page state |
+| `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` | unset | Comma-separated exact hostnames allowed to resolve to loopback, RFC1918, or IPv6 unique-local addresses for local development |
 | `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` | unset | Set to `1` during installation and startup to use beta.33 with page/iframe WebSocket routing and reduced stealth relative to upstream defaults |
 | `CAMOUFOX_INSTALL_DIR` | OS browser cache | Use the same directory during installation and startup; compatibility otherwise uses a separate sibling cache |
 | `CAPTCHA_AUTONOMOUS` | unset | Set to `true` to mark challenge responses as LLM-assisted and return provider-specific `challengePlaybook` context when known |
@@ -25,13 +26,37 @@ The server applies deny-by-default policy checks before and during browsing:
 | `CAMOUFOX_MCP_MAX_DIAGNOSTIC_TEXT_CHARS` | `2000` | Maximum diagnostic text characters per entry, clamped to 100-20000 |
 | `CAMOUFOX_MCP_NO_SQLITE_SHIM` | unset | Set to `1` to load the native `better-sqlite3` module instead of the built-in `node:sqlite` shim (see [troubleshooting](troubleshooting.md)) |
 
-URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, link-local addresses, multicast addresses, reserved/special-purpose IPv4 and IPv6 ranges, and hosts that resolve to those addresses. The server checks the initial URL, proxy server URL, final navigation URL, intercepted browser requests, and intercepted page/iframe WebSocket requests. It does not make traffic anonymous unless you configure an allowed upstream proxy.
+By default, URL policy rejects non-HTTP(S) URLs, localhost, private IP ranges, link-local addresses, multicast addresses, reserved/special-purpose IPv4 and IPv6 ranges, and hosts that resolve to those addresses. The server checks the initial URL, proxy server URL, final navigation URL, intercepted browser requests, and intercepted page/iframe WebSocket requests. It does not make traffic anonymous unless you configure an allowed upstream proxy.
+
+### Local development sites
+
+To browse a local site such as `http://laravel.test/api-documentation`, add its hostname to the MCP server's environment and restart the server:
+
+```bash
+CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=laravel.test node dist/index.js
+```
+
+For an MCP host configuration, set the same variable in the server's `env` object:
+
+```json
+{
+  "CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS": "laravel.test,assets.laravel.test"
+}
+```
+
+Configure each hostname in your local DNS or hosts file so both Node and the browser can resolve it. Containers need their own name resolution and a reachable development server.
+
+Entries match exact hostnames after case and trailing-dot normalization. Wildcards, URLs, ports, and IP literals are rejected. Allowlisting `laravel.test` does not allow `assets.laravel.test` or a direct `127.0.0.1` URL. Add each required hostname explicitly. Allowed hostnames may resolve to loopback, RFC1918 private IPv4, or IPv6 unique-local addresses; metadata, link-local, unspecified, multicast, and reserved addresses remain blocked. DNS failures remain errors.
+
+The [AWS local-services range](https://docs.aws.amazon.com/vpc/latest/userguide/subnet-route-tables.html) `fd00:ec2::/32`, including the [IPv6 instance metadata endpoint](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html), also remains blocked.
+
+The exception applies to navigation, intercepted resources and WebSockets, and proxy URLs. Any page loaded by the server can request an allowlisted host. Only configure hostnames you intend to make reachable by browser tools. `camoufox_status.networkSecurity.allowedPrivateHosts` and `initialize.result.capabilities.extensions["camoufox-mcp"].policy.allowedPrivateHosts` report the active list.
 
 When unsafe browser options are sent without `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`, the server rejects the request and logs a warning naming the rejected option family. Denied unsafe prefs and args remain rejected even when unsafe options are enabled.
 
 ### Network sandbox posture
 
-The server blocks localhost, private, link-local, reserved, and unsafe browser request URLs at the application layer. This is best-effort protection: dedicated-worker WebSockets evade frame-based routing in both browser modes, and browser networking and DNS resolution can still create TOCTOU risk. See [browser compatibility evidence](browser-compatibility.md#remaining-network-and-output-limits).
+The server blocks localhost, private, link-local, reserved, and unsafe browser request URLs at the application layer, subject to the explicit hostname exceptions above. This is best-effort protection: dedicated-worker WebSockets evade frame-based routing in both browser modes, and browser networking and DNS resolution can still create TOCTOU risk. See [browser compatibility evidence](browser-compatibility.md#remaining-network-and-output-limits).
 
 For untrusted browsing, run the server behind container, VM, or host firewall egress rules that deny private, loopback, link-local, metadata, multicast, and reserved ranges. Docker/container detection in `camoufox_status` is only an environment signal, not proof that egress filtering is enforced.
 

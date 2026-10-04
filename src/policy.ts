@@ -1,5 +1,8 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { ALLOWED_PRIVATE_HOSTS } from "./config.js";
+
+const allowedPrivateHosts = new Set(ALLOWED_PRIVATE_HOSTS);
 
 export interface ParsedTargetUrl {
   parsed: URL;
@@ -226,6 +229,9 @@ const BLOCKED_IPV6_CIDRS: Ipv6Cidr[] = [
   buildIpv6Cidr("ff00::", 8),
 ];
 
+// AWS reserves this ULA prefix for local services, including instance metadata.
+const AWS_LOCAL_SERVICES_IPV6_CIDR = buildIpv6Cidr("fd00:ec2::", 32);
+
 function isIpv6InCidr(address: bigint, cidr: Ipv6Cidr): boolean {
   const shift = 128n - BigInt(cidr.prefix);
   return (address >> shift) === (cidr.base >> shift);
@@ -260,6 +266,39 @@ export function isBlockedIp(address: string): boolean {
   return true;
 }
 
+function isPrivateDevelopmentAddress(address: string): boolean {
+  const normalized = normalizeHostname(address);
+  const mappedIpv4 = ipv4FromMappedIpv6(normalized);
+  if (mappedIpv4) {
+    return isPrivateDevelopmentAddress(mappedIpv4);
+  }
+
+  if (isIP(normalized) === 4) {
+    const [first, second] = normalized.split(".").map(Number);
+    return first === 127
+      || first === 10
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 168);
+  }
+
+  if (isIP(normalized) === 6) {
+    const value = parseIpv6ToBigInt(normalized);
+    if (value === undefined || isIpv6InCidr(value, AWS_LOCAL_SERVICES_IPV6_CIDR)) {
+      return false;
+    }
+    return value === 1n || (value >> 121n) === 0x7en;
+  }
+
+  return false;
+}
+
+function privateHostHint(hostname: string): string {
+  if (allowedPrivateHosts.has(hostname) || (!hostname.endsWith(".test") && !isBlockedHostname(hostname))) {
+    return "";
+  }
+  return ` For a trusted local development host, set CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS=${hostname} in the server environment and restart.`;
+}
+
 export function parseAndValidateTargetUrl(rawUrl: string): ParsedTargetUrl {
   let parsed: URL;
   try {
@@ -285,8 +324,8 @@ export function parseAndValidateTargetUrl(rawUrl: string): ParsedTargetUrl {
     };
   }
 
-  if (isBlockedHostname(hostname)) {
-    throw new Error("Local hostnames are not allowed.");
+  if (isBlockedHostname(hostname) && !allowedPrivateHosts.has(hostname)) {
+    throw new Error(`Local hostnames are not allowed.${privateHostHint(hostname)}`);
   }
 
   if (isIP(hostname)) {
@@ -333,8 +372,11 @@ export async function validateTargetUrl(rawUrl: string): Promise<URL> {
     throw new Error("URL host did not resolve to an address.");
   }
 
-  if (records.some((record) => isBlockedIp(record.address))) {
-    throw new Error("URL host resolves to a private, local, or reserved address.");
+  // Opt-in applies only to this exact hostname and ordinary development-network
+  // addresses. Metadata, link-local, multicast, and reserved ranges stay denied.
+  if (records.some((record) => isBlockedIp(record.address)
+    && !(allowedPrivateHosts.has(hostname) && isPrivateDevelopmentAddress(record.address)))) {
+    throw new Error(`URL host resolves to a private, local, or reserved address.${privateHostHint(hostname)}`);
   }
 
   return parsed;

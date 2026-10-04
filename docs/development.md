@@ -39,11 +39,13 @@ claude mcp add --scope project camoufox-dev -- node dist/index.js
 
 Then open Claude Code from the repository root and check `/mcp` for `camoufox-dev`.
 
-Use a public test URL because the server intentionally rejects localhost, private IPs, link-local addresses, and reserved ranges:
+Use a public test URL for the default policy, which rejects localhost, private IPs, link-local addresses, and reserved ranges:
 
 ```text
 Use the camoufox-dev MCP server to browse https://example.com in metadata mode.
 ```
+
+For local sites, configure `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` with exact development hostnames in the MCP server's environment and restart it. See [local development sites](server-policy.md#local-development-sites).
 
 If Camoufox has not been downloaded yet, run:
 
@@ -64,6 +66,8 @@ python3 tests/test_client.py --mode local
 ```
 
 The integration harness starts a local HTTP fixture server and sets `NODE_ENV=test`, `CAMOUFOX_MCP_TEST_ALLOW_LOCALHOST=1`, and a fixture-port allowlist for the MCP process. These test-only settings are intentionally port-scoped so localhost SSRF rejection still runs without the escape hatch.
+
+Local-development regression cases use a separate production-mode server with the test bypass disabled. They check the default denial, explicit hostname allowance, screenshots, sessions, HTTP resources, WebSockets, and continued rejection of unlisted private addresses. Deterministic navigation tests simulate committed URL drift and verify a single corrective load, response metadata, timeout limits, and redirect preservation.
 
 Run `npm run test:all` before a release. It covers lint, dependency audit, deterministic checks, a pinned browser fetch, and the local browser suite. GitHub Actions results are separate evidence; a local pass does not confirm CI.
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` allows exact development hostnames such as `laravel.test` to resolve to loopback or private addresses. Default restrictions remain enabled, and metadata, link-local, and reserved addresses stay blocked. Status and initialization report the configured hostnames. Fixes #33.
+
+### Fixed
+
+- Navigation retries once when the network response used the requested URL but the committed document gained duplicate path separators. One-shot tools and sessions share the check, preserve legitimate redirects, and keep the retry within the navigation timeout. Regression tests simulate the reported drift; the original intermittent engine fault has not been reproduced. Fixes #28.
+
 ## [2.6.0] - 2026-10-03
 
 ### Added
