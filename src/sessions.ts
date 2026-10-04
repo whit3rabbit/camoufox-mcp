@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, Response } from "playwright-core";
 import chalk from "chalk";
-import { validateTargetUrl } from "./policy.js";
-import { DEFAULT_ACTION_TIMEOUT_MS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, DEFAULT_WAIT_STRATEGY, MAX_SESSIONS, SESSION_CLOSE_GRACE_MS, SESSION_TTL_MS } from "./config.js";
+import { normalizeHostname, validateTargetUrl } from "./policy.js";
+import { ALLOWED_PRIVATE_HOSTS, DEFAULT_ACTION_TIMEOUT_MS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, DEFAULT_WAIT_STRATEGY, MAX_SESSIONS, SESSION_CLOSE_GRACE_MS, SESSION_TTL_MS } from "./config.js";
 import type { CaptchaPolicy, SessionRecord, SlotRelease, WaitStrategy } from "./types.js";
 import type { SessionActionToolInput, SessionCloseToolInput, SessionNavigateToolInput, SessionResumeToolInput, SessionSnapshotToolInput, SessionStartToolInput } from "./schemas.js";
 import { acquireBrowserSlot, browserContextOptions, buildCamoufoxOptions, closeBrowser, installRequestGuard, launchCamoufoxBrowser, runGuardedPageRead, settleAndAssertSafe, trackBrowser, validateBrowserOptionsInput } from "./browser-runtime.js";
 import { createDiagnosticsCollector } from "./diagnostics.js";
 import { trackNavigationResponses } from "./navigation-response.js";
+import { navigateWithDocumentUrlCorrection } from "./navigation.js";
 import { buildBrowsePayload, buildSnapshotPayload } from "./extractors.js";
 import { maybeDetectCaptcha } from "./captcha.js";
 import { buildSuccessContent, buildToolError } from "./responses.js";
@@ -150,19 +151,19 @@ export async function navigateSession(
   session.requestGuard.resetBudget();
 
   try {
-    const response = await session.page.goto(targetUrl.toString(), {
+    const response = await navigateWithDocumentUrlCorrection(session.page, targetUrl, {
       waitUntil: waitStrategy ?? session.waitStrategy,
       timeout: timeout ?? DEFAULT_ACTION_TIMEOUT_MS * 6,
-    });
-    await settleAndAssertSafe(session.page, session.requestGuard);
+    }, () => settleAndAssertSafe(session.page, session.requestGuard));
     return response;
   } catch (navigationError) {
+    session.requestGuard.assertAllowed();
     const navigationErrorMessage = describeError(navigationError).toLowerCase();
-    if (/\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback|::1)\b/.test(navigationErrorMessage)) {
+    if (!ALLOWED_PRIVATE_HOSTS.includes(normalizeHostname(targetUrl.hostname))
+      && /\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback|::1)\b/.test(navigationErrorMessage)) {
       throw new Error(`Blocked unsafe browser request to ${safeUrl}.`, { cause: navigationError });
     }
 
-    session.requestGuard.assertAllowed();
     throw navigationError;
   }
 }

@@ -58,6 +58,7 @@ export interface NetworkSecurityStatus {
   sandboxMode: NetworkSandboxMode;
   sandboxDeclared: boolean;
   strictSandboxRequired: boolean;
+  allowedPrivateHosts: string[];
   warning?: string;
 }
 

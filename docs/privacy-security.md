@@ -9,6 +9,8 @@ Camoufox MCP Server uses the Camoufox browser, which includes:
 
 Server-side URL policy is intended to keep the browser tool from being used as a local-network probe. It validates initial URLs, redirects, final URLs, intercepted subresource requests, and intercepted page/iframe WebSocket targets against private, local, link-local, multicast, and reserved address space.
 
+For trusted development sites, `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` grants exact hostnames access to loopback and private addresses. The setting also applies to proxy URLs. Each entry expands what browser tools can reach; see [local development sites](server-policy.md#local-development-sites) for setup and the address ranges that remain blocked.
+
 Dedicated-worker WebSockets evade Playwright's frame-based routing. Local browser probes confirmed a worker connected to a local WebSocket server without invoking the routing callback on both the default beta.28 and compatibility beta.33 builds. See [browser compatibility evidence](browser-compatibility.md#remaining-network-and-output-limits).
 
 This protection is best-effort. For untrusted URLs, enforce egress rules through a VM, host firewall, filtering proxy, or controlled container network. Deny RFC1918 ranges, loopback, link-local addresses, cloud metadata IPs such as `169.254.169.254`, multicast, and reserved networks.

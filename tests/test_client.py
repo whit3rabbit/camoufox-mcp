@@ -6,6 +6,7 @@ import argparse
 from browse_cases import BrowseCases
 from browse_edge_cases import BrowseEdgeCases
 from harness import MCPTestClient, TEST_ENV
+from local_development_cases import LocalDevelopmentCases
 from sequence_cases import SequenceCases
 from session_cases import SessionCases
 from status_security_cases import StatusSecurityCases
@@ -28,6 +29,8 @@ TEST_ORDER = [
     "test_call_tool_browse_rejects_ipv4_mapped_loopback",
     "test_call_tool_browse_rejects_unusual_private_ip_forms",
     "test_call_tool_browse_rejects_special_ipv4_ranges",
+    "test_local_development_requires_explicit_hostname",
+    "test_local_development_allows_screenshot_session_and_resources",
     "test_call_tool_browse_success",
     "test_call_tool_browse_metadata",
     "test_call_tool_browse_selector_text",
@@ -77,7 +80,7 @@ TEST_ORDER = [
     "test_call_tool_browse_rejects_denylisted_unsafe_options_when_allowed",
 ]
 
-class CamoufoxMCPTestClient(StatusSecurityCases, BrowseCases, BrowseEdgeCases, SequenceCases, SessionCases, MCPTestClient):
+class CamoufoxMCPTestClient(StatusSecurityCases, LocalDevelopmentCases, BrowseCases, BrowseEdgeCases, SequenceCases, SessionCases, MCPTestClient):
     def run_tests(self):
         try:
             self.start_server()

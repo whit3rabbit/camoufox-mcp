@@ -21,6 +21,7 @@ TEST_ENV = {
     "CAMOUFOX_MCP_NETWORK_SANDBOX": "0",
     "CAMOUFOX_MCP_REQUIRE_NETWORK_SANDBOX": "0",
     "CAPTCHA_AUTONOMOUS": "false",
+    "CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS": "",
 }
 
 
@@ -438,3 +439,4 @@ class MCPTestClient:
         print("InitializedNotification sent.")
         time.sleep(1) # Allow server to process notification
         print("Handshake complete!")
+        return init_response
