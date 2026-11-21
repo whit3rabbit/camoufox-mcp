@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `browse_sequence` rejects an `evaluate` step before launching the browser when evaluate is disabled, so earlier steps no longer run first.
 - One-shot tools honour the `captchaPolicy` implied by `stealthProfile` (`human_assisted` implies `pause`). They read only the explicit argument before.
 - `browse_session_start`'s `timeout` is the session's default navigation timeout. It was accepted and ignored.
-- Default mode checks for the uBlock Origin addon, and for the GeoIP database when `geoip` is on, before launching. A missing asset returns an error naming the fetch command instead of starting a download during launch.
+- Default mode checks for the uBlock Origin addon, and for the GeoIP database when `geoip` is on, before launching. The default-mode fetch now fails if the addon download did not install it, instead of reporting success. A missing asset returns an error naming the fetch command instead of starting a download during launch.
 - CAPTCHA detection no longer flags CSRF fields (`token`, `challenge` in a field name) or any page mentioning Cloudflare. It matches challenge response fields and structural challenge markers. Returned frame selectors identify one frame (`iframe >> nth=N` when a provider selector matches several), and element selectors are the ones that were queried.
 - Session diagnostics restart at each `browse_session_navigate`, and console diagnostics keep the most recent entries rather than the first.
 - NAT64 addresses in `64:ff9b::/96` are judged by their embedded IPv4 address, so public IPv4 sites work on IPv6-only networks with DNS64.

@@ -37,6 +37,18 @@ export function isBrowserInstalled(dir = INSTALL_DIR, build = selectedBuild) {
   }
 }
 
+// The upstream addon downloader logs a failed download and returns normally.
+// The runtime refuses to launch without the addon, so a fetch that reports
+// success must have installed it.
+export function assertDefaultAddonsInstalled(addons, dir = INSTALL_DIR) {
+  const resourceDir = OS_NAME === "mac" ? join(dir, "Camoufox.app", "Contents", "Resources") : dir;
+  for (const addon of addons) {
+    if (!existsSync(join(resourceDir, "addons", addon, "manifest.json"))) {
+      throw new Error(`Camoufox ${addon} addon installation failed. Check network access to addons.mozilla.org and rerun the fetch.`);
+    }
+  }
+}
+
 export async function verifyArchiveDigest(file, expected) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
@@ -151,6 +163,7 @@ export async function main() {
     const { DefaultAddons, maybeDownloadAddons } = await import("camoufox-js/dist/addons.js");
     if (ALLOW_GEOIP) await downloadMMDB();
     await maybeDownloadAddons(DefaultAddons);
+    assertDefaultAddonsInstalled(Object.keys(DefaultAddons));
   }
 }
 

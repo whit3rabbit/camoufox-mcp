@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { assertCompatibilityNode, ensureCompatibilityAssets, ensureCompatibilityGeoip, isBrowserInstalled, PinnedFetcher, selectedBuild, verifyArchiveDigest } from "../scripts/fetch-browser.mjs";
+import { assertCompatibilityNode, assertDefaultAddonsInstalled, ensureCompatibilityAssets, ensureCompatibilityGeoip, isBrowserInstalled, PinnedFetcher, selectedBuild, verifyArchiveDigest } from "../scripts/fetch-browser.mjs";
 import { OS_NAME } from "camoufox-js/dist/pkgman.js";
 
 const dir = mkdtempSync(join(tmpdir(), "camoufox-fetch-test-"));
@@ -94,6 +94,15 @@ try {
   await assert.rejects(ensureCompatibilityAssets(assets), /UBO addon is missing/, "an addon directory without a manifest is not installed");
   writeFileSync(join(addonDir, "manifest.json"), "{}");
   await ensureCompatibilityAssets(assets);
+
+  // Default mode: the upstream downloader swallows a failed addon download, so
+  // the fetch checks the result before reporting success.
+  const defaultDir = join(dir, "default-cache");
+  const defaultResources = OS_NAME === "mac" ? join(defaultDir, "Camoufox.app", "Contents", "Resources") : defaultDir;
+  mkdirSync(join(defaultResources, "addons", "UBO"), { recursive: true });
+  assert.throws(() => assertDefaultAddonsInstalled(["UBO"], defaultDir), /UBO addon installation failed.*rerun the fetch/);
+  writeFileSync(join(defaultResources, "addons", "UBO", "manifest.json"), "{}");
+  assert.doesNotThrow(() => assertDefaultAddonsInstalled(["UBO"], defaultDir));
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
