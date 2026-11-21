@@ -17,6 +17,7 @@ export async function handleLinks(input: LinksToolInput) {
       page,
       response,
       requestGuard,
+      captchaPolicy,
       diagnostics,
     }) => {
       const payload = await runGuardedPageRead(
@@ -31,8 +32,8 @@ export async function handleLinks(input: LinksToolInput) {
       );
       requestGuard.assertAllowed();
       appendDiagnostics(payload, diagnostics.payload());
-      if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+      if (captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, requestGuard, response, payload, captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);
@@ -51,6 +52,7 @@ export async function handleForms(input: FormsToolInput) {
       page,
       response,
       requestGuard,
+      captchaPolicy,
       diagnostics,
     }) => {
       const payload = await runGuardedPageRead(
@@ -66,8 +68,8 @@ export async function handleForms(input: FormsToolInput) {
       );
       requestGuard.assertAllowed();
       appendDiagnostics(payload, diagnostics.payload());
-      if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+      if (captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, requestGuard, response, payload, captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);
@@ -86,6 +88,7 @@ export async function handleOutline(input: OutlineToolInput) {
       page,
       response,
       requestGuard,
+      captchaPolicy,
       diagnostics,
     }) => {
       const payload = await runGuardedPageRead(
@@ -100,8 +103,8 @@ export async function handleOutline(input: OutlineToolInput) {
       );
       requestGuard.assertAllowed();
       appendDiagnostics(payload, diagnostics.payload());
-      if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+      if (captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, requestGuard, response, payload, captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);
@@ -120,6 +123,7 @@ export async function handleFind(input: FindToolInput) {
       page,
       response,
       requestGuard,
+      captchaPolicy,
       diagnostics,
     }) => {
       const payload = await runGuardedPageRead(
@@ -136,8 +140,8 @@ export async function handleFind(input: FindToolInput) {
       );
       requestGuard.assertAllowed();
       appendDiagnostics(payload, diagnostics.payload());
-      if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+      if (captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, requestGuard, response, payload, captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);
@@ -160,23 +164,28 @@ export async function handleScreenshot(input: ScreenshotToolInput) {
       page,
       response,
       requestGuard,
+      captchaPolicy,
     }) => {
-      const screenshotResult = await captureScreenshot(page, safeUrl, {
-        fullPage: input.fullPage,
-        selector: input.selector,
-        type: input.type,
-        quality: input.quality,
-      });
-      requestGuard.assertAllowed();
+      // The image and title are page-derived data: read them through the guard
+      // so a page that moved to a blocked location is never captured.
+      const { screenshotResult, title } = await runGuardedPageRead(page, requestGuard, async () => ({
+        screenshotResult: await captureScreenshot(page, safeUrl, {
+          fullPage: input.fullPage,
+          selector: input.selector,
+          type: input.type,
+          quality: input.quality,
+        }),
+        title: await page.title(),
+      }), "Screenshot");
       const payload = {
         url: redactUrl(page.url()),
-        title: await page.title(),
+        title,
         status: response?.status(),
         contentType: response?.headers()["content-type"],
         screenshot: screenshotResult.screenshotMetadata,
       };
-      if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+      if (captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, requestGuard, response, payload, captchaPolicy, safeUrl);
         // captureScreenshot always returns an object (base64 only on success),
         // so the previous `screenshotResult ?? captchaScreenshot` never used the
         // bounded challenge screenshot. Prefer the main capture only when it
@@ -201,22 +210,22 @@ export async function handleConsole(input: ConsoleToolInput) {
       page,
       response,
       requestGuard,
+      captchaPolicy,
       diagnostics,
     }) => {
-      await runGuardedPageRead(page, requestGuard, () => page.title());
-      requestGuard.assertAllowed();
+      const title = await runGuardedPageRead(page, requestGuard, () => page.title());
       const diagnosticsPayload = diagnostics.payload();
       const payload = {
         url: redactUrl(page.url()),
-        title: await page.title(),
+        title,
         status: response?.status(),
         contentType: response?.headers()["content-type"],
         console: diagnosticsPayload?.console ?? [],
         consoleTruncated: diagnosticsPayload?.consoleTruncated ?? false,
         ...(diagnosticsPayload?.network ? { network: diagnosticsPayload.network } : {}),
       };
-      if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+      if (captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, requestGuard, response, payload, captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);
@@ -236,6 +245,7 @@ export async function handleNetworkSummary(input: NetworkSummaryToolInput) {
       page,
       response,
       requestGuard,
+      captchaPolicy,
       diagnostics,
     }) => {
       const payload = await runGuardedPageRead(
@@ -244,8 +254,8 @@ export async function handleNetworkSummary(input: NetworkSummaryToolInput) {
         () => buildNetworkSummary(page, response, diagnostics.payload(), input.maxFailures ?? 10),
       );
       requestGuard.assertAllowed();
-      if (input.captchaPolicy) {
-        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, response, payload, input.captchaPolicy, safeUrl);
+      if (captchaPolicy) {
+        const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(page, requestGuard, response, payload, captchaPolicy, safeUrl);
         return buildSuccessContent(mergedPayload, captchaScreenshot);
       }
       return buildSuccessContent(payload);

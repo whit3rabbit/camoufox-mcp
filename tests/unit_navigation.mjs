@@ -30,7 +30,9 @@ function makeSession(page) {
     page,
     rawUrls: [],
     waitStrategy: "domcontentloaded",
-    requestGuard: { resets: 0, resetBudget() { this.resets += 1; }, assertAllowed() {} },
+    navigationTimeout: 60000,
+    diagnostics: { resets: 0, reset() { this.resets += 1; } },
+    requestGuard: { resets: 0, reset() { this.resets += 1; }, assertAllowed() {}, async settle() {}, async assertSettled() {}, takeBlock() {} },
   };
 }
 
@@ -40,6 +42,7 @@ const response = await navigateSession(session, target, "load", 5000);
 assert.equal(drifted.calls.length, 2, "committed document drift must cause one corrective navigation");
 assert.equal(response, drifted.responses[1], "session payload must use the corrective response");
 assert.equal(session.requestGuard.resets, 1, "correction must retain the navigation request budget");
+assert.equal(session.diagnostics.resets, 1, "a session navigation starts diagnostics afresh");
 assert.equal(drifted.calls[1].url, target);
 assert.equal(drifted.calls[1].options.waitUntil, "load");
 assert.ok(drifted.calls[1].options.timeout > 0 && drifted.calls[1].options.timeout <= 5000);
@@ -163,9 +166,10 @@ execFileSync(process.execPath, ["--input-type=module", "-e", `
   const guardError = new Error("Blocked unsafe browser request to http://169.254.169.254/");
   let blocked = false;
   const session = {
-    rawUrls: [], waitStrategy: "domcontentloaded",
+    rawUrls: [], waitStrategy: "domcontentloaded", navigationTimeout: 60000,
+    diagnostics: { reset() {} },
     page: { goto: async () => { throw connectionError; } },
-    requestGuard: { resetBudget() {}, assertAllowed() { if (blocked) throw guardError; } },
+    requestGuard: { reset() {}, assertAllowed() { if (blocked) throw guardError; }, async settle() {}, async assertSettled() { this.assertAllowed(); } },
   };
   await assert.rejects(navigateSession(session, "http://localhost:54321/"), (error) => error === connectionError);
   blocked = true;

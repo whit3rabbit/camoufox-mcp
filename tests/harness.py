@@ -217,7 +217,22 @@ class PrivateWebSocketListener:
         self.thread.join(timeout=1)
 
 
+# Tools that launch a browser and therefore accept the shared `geoip` option.
+BROWSER_LAUNCH_TOOLS = frozenset({
+    "browse", "browse_snapshot", "browse_sequence", "browse_links", "browse_forms",
+    "browse_outline", "browse_find", "browse_screenshot", "browse_console",
+    "browse_network_summary", "browse_session_start",
+})
+
+
 class MCPTestClient:
+    # Shared across every client a test spawns: MCP stdout must carry JSON-RPC
+    # objects only, so any other line is a protocol violation that fails the run.
+    stdout_violations = []
+    # Set by --no-geoip for environments that cannot fetch the GeoIP database.
+    # GeoIP-enabled launches are then not exercised by the run.
+    disable_geoip = False
+
     def __init__(self, mode='docker', image_name="camoufox-mcp-server:latest", docker_platform=None, env=None):
         self.mode = mode
         self.image_name = image_name
@@ -244,7 +259,6 @@ class MCPTestClient:
                 "run",
                 "-i",
                 "--rm",
-                "--init",
                 "--add-host",
                 "host.docker.internal:host-gateway",
             ]
@@ -293,13 +307,19 @@ class MCPTestClient:
 
     def _read_output(self):
         for line in self.process.stdout:
+            if not line.strip():
+                continue
             try:
                 response = json.loads(line)
-                request_id = response.get("id")
-                if request_id:
-                    self.responses[request_id] = response
             except json.JSONDecodeError:
-                print(f"[Server STDOUT]: {line.strip()}")
+                response = None
+            if not isinstance(response, dict):
+                MCPTestClient.stdout_violations.append(line.strip()[:300])
+                print(f"[Server STDOUT protocol violation]: {line.strip()}")
+                continue
+            request_id = response.get("id")
+            if request_id:
+                self.responses[request_id] = response
 
     def _read_errors(self):
         for line in self.process.stderr:
@@ -309,6 +329,10 @@ class MCPTestClient:
 
     def send_request(self, method, params):
         request_id = str(uuid.uuid4())
+        if (MCPTestClient.disable_geoip and method == "tools/call"
+                and params.get("name") in BROWSER_LAUNCH_TOOLS
+                and "geoip" not in params.get("arguments", {})):
+            params = {**params, "arguments": {**params.get("arguments", {}), "geoip": False}}
         request = {
             "jsonrpc": "2.0",
             "id": request_id,

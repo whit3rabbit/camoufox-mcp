@@ -9,21 +9,27 @@ export function createDiagnosticsCollector(
   rawUrls: string[],
   secrets: string[],
 ): DiagnosticsCollector {
-  const consoleEntries: ConsoleDiagnostic[] = [];
-  const networkEntries: NetworkDiagnostic[] = [];
+  let consoleEntries: ConsoleDiagnostic[] = [];
+  let networkEntries: NetworkDiagnostic[] = [];
   const networkByRequest = new WeakMap<object, NetworkDiagnostic>();
   let consoleTruncated = false;
   let networkTruncated = false;
 
+  // Console keeps the most recent entries: on a long-lived page the latest
+  // messages are the ones that explain its current state. Network keeps the
+  // first entries, which describe how the page loaded.
+  function pushConsole(entry: ConsoleDiagnostic): void {
+    if (consoleEntries.length >= MAX_DIAGNOSTIC_ENTRIES) {
+      consoleEntries.shift();
+      consoleTruncated = true;
+    }
+    consoleEntries.push(entry);
+  }
+
   if (input.includeConsole) {
     page.on("console", (message) => {
-      if (consoleEntries.length >= MAX_DIAGNOSTIC_ENTRIES) {
-        consoleTruncated = true;
-        return;
-      }
-
       const location = message.location();
-      consoleEntries.push({
+      pushConsole({
         type: message.type(),
         text: sanitizeDiagnosticText(message.text(), rawUrls, secrets),
         location: {
@@ -35,12 +41,7 @@ export function createDiagnosticsCollector(
     });
 
     page.on("pageerror", (error) => {
-      if (consoleEntries.length >= MAX_DIAGNOSTIC_ENTRIES) {
-        consoleTruncated = true;
-        return;
-      }
-
-      consoleEntries.push({
+      pushConsole({
         type: "pageerror",
         text: sanitizeDiagnosticText(describeError(error), rawUrls, secrets),
       });
@@ -88,7 +89,7 @@ export function createDiagnosticsCollector(
     payload(): DiagnosticsPayload | undefined {
       const payload: DiagnosticsPayload = {};
       if (input.includeConsole) {
-        payload.console = consoleEntries;
+        payload.console = [...consoleEntries];
         if (consoleTruncated) {
           payload.consoleTruncated = true;
         }
@@ -101,6 +102,14 @@ export function createDiagnosticsCollector(
       }
 
       return input.includeConsole || input.includeNetwork ? payload : undefined;
+    },
+    reset(): void {
+      // New arrays: a payload already handed out must not change underneath
+      // its reader.
+      consoleEntries = [];
+      networkEntries = [];
+      consoleTruncated = false;
+      networkTruncated = false;
     },
   };
 }

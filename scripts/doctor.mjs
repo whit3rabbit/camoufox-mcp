@@ -159,7 +159,8 @@ function smokeTest() {
       return resolve();
     }
 
-    const p = spawn("node", [distPath], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] });
+    // Run the smoke test on the Node this doctor just checked, not whichever "node" is first on PATH.
+    const p = spawn(process.execPath, [distPath], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     // Parse responses as they arrive so the smoke test resolves as soon as both
     // the status (id 2) and browse (id 3) results are in, instead of always

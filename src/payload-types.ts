@@ -21,6 +21,9 @@ export interface ScreenshotMetadata {
   maxBytes?: number;
   type?: ScreenshotImageType;
   fullPage?: boolean;
+  pageWidth?: number;
+  pageHeight?: number;
+  clipped?: boolean;
   selector?: string;
   selectorFound?: boolean;
   error?: string;

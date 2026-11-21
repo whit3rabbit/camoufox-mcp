@@ -1,19 +1,24 @@
 import { randomUUID } from "node:crypto";
 import type { Browser, Response } from "playwright-core";
 import chalk from "chalk";
-import { normalizeHostname, validateTargetUrl } from "./policy.js";
-import { ALLOWED_PRIVATE_HOSTS, DEFAULT_ACTION_TIMEOUT_MS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, DEFAULT_WAIT_STRATEGY, MAX_SESSIONS, SESSION_CLOSE_GRACE_MS, SESSION_TTL_MS } from "./config.js";
+import { validateTargetUrl } from "./policy.js";
+import { DEFAULT_ACTION_TIMEOUT_MS, DEFAULT_MAX_CHARS, DEFAULT_MAX_ELEMENTS, DEFAULT_WAIT_STRATEGY, MAX_SESSIONS, SESSION_CLOSE_GRACE_MS, SESSION_TTL_MS } from "./config.js";
 import type { CaptchaPolicy, SessionRecord, SlotRelease, WaitStrategy } from "./types.js";
 import type { SessionActionToolInput, SessionCloseToolInput, SessionNavigateToolInput, SessionResumeToolInput, SessionSnapshotToolInput, SessionStartToolInput } from "./schemas.js";
-import { acquireBrowserSlot, browserContextOptions, buildCamoufoxOptions, closeBrowser, installRequestGuard, launchCamoufoxBrowser, runGuardedPageRead, settleAndAssertSafe, trackBrowser, validateBrowserOptionsInput } from "./browser-runtime.js";
+import { acquireBrowserSlot, browserContextOptions, buildCamoufoxOptions, closeBrowser, describeNavigationFailure, installRequestGuard, launchCamoufoxBrowser, runGuardedPageRead, settleAndAssertSafe, trackBrowser, validateBrowserOptionsInput } from "./browser-runtime.js";
+import { currentRequestSignal, throwIfCancelled } from "./request-context.js";
 import { createDiagnosticsCollector } from "./diagnostics.js";
 import { trackNavigationResponses } from "./navigation-response.js";
 import { navigateWithDocumentUrlCorrection } from "./navigation.js";
 import { buildBrowsePayload, buildSnapshotPayload } from "./extractors.js";
 import { maybeDetectCaptcha } from "./captcha.js";
 import { buildSuccessContent, buildToolError } from "./responses.js";
-import { isLocalOperationTimeout, runSequenceAction } from "./sequence.js";
-import { applyStealthProfile, defaultHeadlessMode, describeError, getProxySecrets, getProxyServer, redactUrl, sanitizeErrorMessage, selectOperatingSystem } from "./utils.js";
+import { actionTimeout, runSequenceAction } from "./sequence.js";
+import { applyStealthProfile, defaultHeadlessMode, describeError, getProxySecrets, getProxyServer, isOperationTimeout, redactUrl, sanitizeErrorMessage, selectOperatingSystem, withTimeout } from "./utils.js";
+
+const DEFAULT_SESSION_NAVIGATION_TIMEOUT_MS = DEFAULT_ACTION_TIMEOUT_MS * 6;
+// Headroom over an action's own timeout before the session-level deadline fires.
+const SESSION_ACTION_GRACE_MS = 2000;
 
 let reservedSessions = 0;
 const sessions = new Map<string, SessionRecord>();
@@ -116,16 +121,25 @@ export async function getSession(sessionId: string): Promise<SessionRecord> {
 export async function runSessionExclusive<T>(
   session: SessionRecord,
   operation: () => Promise<T>,
+  // True when the failed operation left work running in the page that could
+  // still land later. Only then is the session unusable.
+  leftWorkRunning: (error: unknown) => boolean = () => false,
 ): Promise<T> {
+  // Read synchronously, before queueing behind the session's current operation.
+  const signal = currentRequestSignal();
   const run = session.op.catch(() => undefined).then(async () => {
     if (session.closing || session.closed) {
       throw new Error(`Session is closing or closed: ${session.id}`);
     }
+    // A request cancelled while it waited its turn must not start. Once an
+    // operation has started it runs to its own bounded end: interrupting it
+    // would destroy session state the caller may still want.
+    throwIfCancelled(signal);
 
     try {
       return await operation();
     } catch (error) {
-      if (isLocalOperationTimeout(error)) {
+      if (leftWorkRunning(error)) {
         await closeSessionNow(session, "operation-timeout");
       }
       throw error;
@@ -146,26 +160,28 @@ export async function navigateSession(
   const targetUrl = await validateTargetUrl(url);
   session.rawUrls.push(url);
 
-  // Reset the request budget for this navigation. Sessions reuse one context,
-  // so without a reset the lifetime budget is exhausted after a few heavy pages.
-  session.requestGuard.resetBudget();
+  // A navigation replaces the document, so the previous page's request budget,
+  // recorded blocks, and diagnostics no longer describe what will be returned.
+  session.requestGuard.reset();
+  session.diagnostics.reset();
 
   try {
     const response = await navigateWithDocumentUrlCorrection(session.page, targetUrl, {
       waitUntil: waitStrategy ?? session.waitStrategy,
-      timeout: timeout ?? DEFAULT_ACTION_TIMEOUT_MS * 6,
+      timeout: timeout ?? session.navigationTimeout,
     }, () => settleAndAssertSafe(session.page, session.requestGuard));
     return response;
   } catch (navigationError) {
-    session.requestGuard.assertAllowed();
-    const navigationErrorMessage = describeError(navigationError).toLowerCase();
-    if (!ALLOWED_PRIVATE_HOSTS.includes(normalizeHostname(targetUrl.hostname))
-      && /\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback|::1)\b/.test(navigationErrorMessage)) {
-      throw new Error(`Blocked unsafe browser request to ${safeUrl}.`, { cause: navigationError });
-    }
-
-    throw navigationError;
+    await session.requestGuard.assertSettled();
+    throw describeNavigationFailure(navigationError, targetUrl, safeUrl);
   }
+}
+
+// What a failed session call reports. A recorded block explains the failure
+// better than the secondary error it caused, and taking it here is what lets
+// the session recover: see RequestGuard.takeBlock.
+function sessionFailure(session: SessionRecord | undefined, error: unknown): unknown {
+  return session?.requestGuard.takeBlock() ?? error;
 }
 
 export async function handleSessionStart(input: SessionStartToolInput) {
@@ -183,7 +199,7 @@ export async function handleSessionStart(input: SessionStartToolInput) {
   let browser: Browser | undefined;
   try {
     await validateBrowserOptionsInput(effectiveInput);
-    release = await acquireBrowserSlot();
+    release = await acquireBrowserSlot(currentRequestSignal());
     const selectedOS = selectOperatingSystem(effectiveInput.os);
     const waitStrategy = effectiveInput.waitStrategy ?? DEFAULT_WAIT_STRATEGY;
     const headlessMode = defaultHeadlessMode(effectiveInput.headless);
@@ -193,7 +209,6 @@ export async function handleSessionStart(input: SessionStartToolInput) {
     const context = await browser.newContext(browserContextOptions(effectiveInput));
     const requestGuard = await installRequestGuard(context);
     const page = await context.newPage();
-    requestGuard.watchPage(page);
 
     const id = `sess_${randomUUID()}`;
     const rawUrls = [getProxyServer(effectiveInput.proxy)].filter((rawUrl): rawUrl is string => Boolean(rawUrl));
@@ -209,6 +224,7 @@ export async function handleSessionStart(input: SessionStartToolInput) {
       selectedOS,
       waitStrategy,
       captchaPolicy,
+      navigationTimeout: effectiveInput.timeout ?? DEFAULT_SESSION_NAVIGATION_TIMEOUT_MS,
       releaseSlot: release,
       rawUrls,
       secrets,
@@ -298,6 +314,7 @@ export async function buildSessionSnapshotResult(
   const captchaPolicy = effectiveCaptchaPolicy(session, input);
   const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(
     session.page,
+    session.requestGuard,
     session.lastNavigationResponse,
     basePayload,
     captchaPolicy,
@@ -322,21 +339,37 @@ export async function handleSessionNavigate(input: SessionNavigateToolInput) {
       );
       const basePayload = { sessionId: currentSession.id, expiresAt: sessionExpiresAt(currentSession), ...payload };
       const captchaPolicy = effectiveCaptchaPolicy(currentSession, input);
-      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(currentSession.page, response, basePayload, captchaPolicy, redactUrl(input.url));
+      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(currentSession.page, currentSession.requestGuard, response, basePayload, captchaPolicy, redactUrl(input.url));
       return buildSuccessContent(mergedPayload, captchaScreenshot);
     });
   } catch (error) {
-    return buildToolError(`Failed to navigate session. Error: ${sessionSanitizedError(error, session, [input.url])}`);
+    return buildToolError(`Failed to navigate session. Error: ${sessionSanitizedError(sessionFailure(session, error), session, [input.url])}`);
   }
 }
 
 export async function handleSessionAction(input: SessionActionToolInput) {
   let session: SessionRecord | undefined;
+  // Set when this server's own deadline abandoned the action mid-flight. The
+  // abandoned step may still land in the page, so the session cannot be reused.
+  // A Playwright timeout is different: Playwright stops the action itself.
+  let actionAbandoned = false;
   try {
     const currentSession = await getSession(input.sessionId);
     session = currentSession;
     return await runSessionExclusive(currentSession, async () => {
-      const actionResult = await runSequenceAction(currentSession.page, input.action, 0, currentSession.rawUrls, currentSession.secrets);
+      let actionResult;
+      try {
+        // Individual steps carry their own timeouts; this bounds the whole
+        // action so no step without one can hold the session.
+        actionResult = await withTimeout(
+          runSequenceAction(currentSession.page, input.action, 0, currentSession.rawUrls, currentSession.secrets),
+          actionTimeout(input.action) + SESSION_ACTION_GRACE_MS,
+          "Session action",
+        );
+      } catch (actionError) {
+        actionAbandoned = isOperationTimeout(actionError);
+        throw actionError;
+      }
       await settleAndAssertSafe(currentSession.page, currentSession.requestGuard);
       const snapshot = await runGuardedPageRead(
         currentSession.page,
@@ -349,22 +382,18 @@ export async function handleSessionAction(input: SessionActionToolInput) {
           input.selector,
           () => currentSession.lastNavigationResponse,
         ),
+        "Snapshot",
       );
       const basePayload = { sessionId: currentSession.id, expiresAt: sessionExpiresAt(currentSession), action: actionResult, snapshot };
       const captchaPolicy = effectiveCaptchaPolicy(currentSession, input);
-      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(currentSession.page, currentSession.lastNavigationResponse, basePayload, captchaPolicy, redactUrl(currentSession.page.url()));
+      const { mergedPayload, captchaScreenshot } = await maybeDetectCaptcha(currentSession.page, currentSession.requestGuard, currentSession.lastNavigationResponse, basePayload, captchaPolicy, redactUrl(currentSession.page.url()));
       return buildSuccessContent(mergedPayload, captchaScreenshot);
-    });
+    }, () => actionAbandoned);
   } catch (error) {
-    // Failed actions skip the success-path guard check. Read its recorded
-    // denial after runSessionExclusive has completed any timeout cleanup.
-    let actionError = error;
-    try {
-      session?.requestGuard.assertAllowed();
-    } catch (blockedRequestError) {
-      actionError = blockedRequestError;
-    }
-    return buildToolError(`Failed to run session action. Error: ${sessionSanitizedError(actionError, session)}`);
+    // A network rejection can fail an action before its post-action guard
+    // check runs, so give redirect validations a moment to finish first.
+    await session?.requestGuard.settle();
+    return buildToolError(`Failed to run session action. Error: ${sessionSanitizedError(sessionFailure(session, error), session)}`);
   }
 }
 
@@ -375,7 +404,7 @@ export async function handleSessionSnapshot(input: SessionSnapshotToolInput) {
     session = currentSession;
     return await runSessionExclusive(currentSession, async () => buildSessionSnapshotResult(currentSession, input));
   } catch (error) {
-    return buildToolError(`Failed to snapshot session. Error: ${sessionSanitizedError(error, session)}`);
+    return buildToolError(`Failed to snapshot session. Error: ${sessionSanitizedError(sessionFailure(session, error), session)}`);
   }
 }
 
@@ -392,7 +421,7 @@ export async function handleSessionResume(input: SessionResumeToolInput) {
       return buildSessionSnapshotResult(currentSession, input);
     });
   } catch (error) {
-    return buildToolError(`Failed to resume session. Error: ${sessionSanitizedError(error, session)}`);
+    return buildToolError(`Failed to resume session. Error: ${sessionSanitizedError(sessionFailure(session, error), session)}`);
   }
 }
 

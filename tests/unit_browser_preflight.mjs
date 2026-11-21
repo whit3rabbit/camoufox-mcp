@@ -13,7 +13,7 @@ delete process.env.CAMOUFOX_MCP_BROWSER_COMPATIBILITY;
 process.env.CAMOUFOX_INSTALL_DIR = join(temporaryRoot, "cache");
 
 try {
-  const { MISSING_BROWSER_MESSAGE, assertBrowserBinaryAvailable, probeBrowserBinary } = await import("../dist/browser-preflight.js");
+  const { MISSING_BROWSER_MESSAGE, assertBrowserBinaryAvailable, assertDefaultLaunchAssets, probeBrowserBinary } = await import("../dist/browser-preflight.js");
   const { OS_NAME } = await import("camoufox-js/dist/pkgman.js");
   const executablePath = OS_NAME === "mac"
     ? join(process.env.CAMOUFOX_INSTALL_DIR, "Camoufox.app", "Contents", "MacOS", "camoufox")
@@ -54,6 +54,34 @@ try {
   rmSync(executablePath);
   mkdirSync(executablePath);
   assert.throws(probeBrowserBinary, "a directory at the executable path must reject the cache");
+
+  // Default-mode launch assets: camoufox-js would otherwise download a missing
+  // addon or GeoIP database in the middle of a launch.
+  {
+    const assetDir = join(temporaryRoot, "launch-assets");
+    const resourceDir = OS_NAME === "mac" ? join(assetDir, "Camoufox.app", "Contents", "Resources") : assetDir;
+    mkdirSync(resourceDir, { recursive: true });
+    assert.throws(() => assertDefaultLaunchAssets({ geoip: false }, assetDir), (error) => {
+      assert.match(error.message, /uBlock Origin addon is not installed/);
+      assert.match(error.message, /npm run fetch:camoufox/, "the error names the fix");
+      return true;
+    });
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({ geoip: false, excludeAddons: ["UBO"] }, assetDir), "an excluded addon is not required");
+
+    mkdirSync(join(resourceDir, "addons", "UBO"), { recursive: true });
+    assert.throws(() => assertDefaultLaunchAssets({ geoip: false }, assetDir), /uBlock Origin/, "an empty addon directory is not an installed addon");
+    writeFileSync(join(resourceDir, "addons", "UBO", "manifest.json"), "{}");
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({ geoip: false }, assetDir));
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({}, assetDir));
+
+    assert.throws(() => assertDefaultLaunchAssets({ geoip: true }, assetDir), (error) => {
+      assert.match(error.message, /GeoIP database is not installed/);
+      assert.match(error.message, /geoip: false/, "the error offers the option that avoids the database");
+      return true;
+    });
+    writeFileSync(join(assetDir, "GeoLite2-City.mmdb"), "fixture");
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({ geoip: true }, assetDir));
+  }
 
   // A fresh process catches the upstream fire-and-forget downloader hidden by launchPath().
   const missingCache = join(temporaryRoot, "fresh-process-missing-cache");

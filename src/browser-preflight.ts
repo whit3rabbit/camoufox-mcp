@@ -1,4 +1,4 @@
-import { accessSync, constants, readFileSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { OS_NAME } from "camoufox-js/dist/pkgman.js";
 import { BROWSER_INSTALL_DIR, EXPECTED_BROWSER_VERSION } from "./browser-build.js";
@@ -40,5 +40,23 @@ export function assertBrowserBinaryAvailable(probe: () => unknown = probeBrowser
   } catch (error) {
     if (error instanceof BrowserBuildMismatchError) throw error;
     throw new Error(MISSING_BROWSER_MESSAGE, { cause: error });
+  }
+}
+
+// camoufox-js fetches a missing uBlock Origin addon or GeoIP database during
+// launch. That turns a browse into a download bounded only by the launch
+// timeout and makes the outcome depend on the network. Check the cache instead
+// and name the fix, as the compatibility launcher's preflight already does.
+export function assertDefaultLaunchAssets(
+  options: { geoip?: unknown; excludeAddons?: string[] },
+  installDir: string = BROWSER_INSTALL_DIR,
+): void {
+  const resourceDir = OS_NAME === "mac" ? join(installDir, "Camoufox.app", "Contents", "Resources") : installDir;
+  if (!options.excludeAddons?.includes("UBO") && !existsSync(join(resourceDir, "addons", "UBO", "manifest.json"))) {
+    throw new Error(`Camoufox uBlock Origin addon is not installed. ${FETCH_GUIDANCE}`);
+  }
+
+  if (options.geoip && !existsSync(join(installDir, "GeoLite2-City.mmdb"))) {
+    throw new Error(`Camoufox GeoIP database is not installed. ${FETCH_GUIDANCE} Or pass geoip: false to launch without location matching.`);
   }
 }

@@ -245,6 +245,40 @@ execFileSync(process.execPath, ["--input-type=module", "-e", `
   await assert.doesNotReject(validateBrowserOptionsInput({ firefox_user_prefs: { "browser.startup.page": 0 } }));
 `], { env: { ...process.env, CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS: "1" } });
 
+// --- IPv6 ranges ---------------------------------------------------------------
+{
+  const { isBlockedIp, normalizeHostname, isLoopbackNavigationError } = await import("../dist/policy.js");
+
+  // NAT64 well-known prefix: the embedded IPv4 address decides. On a DNS64
+  // network every IPv4-only site resolves into this range, so blocking the
+  // prefix outright made those networks unusable.
+  assert.equal(isBlockedIp("64:ff9b::5db8:d822"), false, "NAT64 form of a public address is allowed");
+  assert.equal(isBlockedIp("64:ff9b::808:808"), false);
+  for (const address of ["64:ff9b::7f00:1", "64:ff9b::a00:1", "64:ff9b::c0a8:1", "64:ff9b::a9fe:a9fe", "64:ff9b::1", "64:ff9b:1::5db8:d822"]) {
+    assert.equal(isBlockedIp(address), true, address + " embeds or is a non-public address");
+  }
+
+  // IPv4-compatible, IPv4-translated, and deprecated site-local space.
+  for (const address of ["::7f00:1", "::a00:1", "::ffff:0:7f00:1", "fec0::1", "feff::1", "::2", "::"]) {
+    assert.equal(isBlockedIp(address), true, address + " must be blocked");
+  }
+  for (const address of ["2606:4700:4700::1111", "2a00:1450:4001:81b::200e"]) {
+    assert.equal(isBlockedIp(address), false, address + " is public");
+  }
+
+  assert.equal(normalizeHostname("LocalHost..."), "localhost");
+  assert.throws(() => parseAndValidateTargetUrl("http://localhost../"), /not allowed/);
+
+  // The loopback pattern must recognise IPv6 loopback, which \b cannot anchor.
+  for (const message of ["page.goto: NS_ERROR_CONNECTION_REFUSED at http://[::1]:8080/", "connection to ::1 refused", "net::ERR at http://127.0.0.1/", "http://LOCALHOST:3000/"]) {
+    assert.equal(isLoopbackNavigationError(message), true, message);
+  }
+  // "::1:443" is not matched: without brackets it is a different address.
+  for (const message of ["connect ECONNREFUSED 2606:4700::1:443", "connect ECONNREFUSED ::1:443", "failed at https://example.com/", "fe80::1%eth0 unreachable", "2001:db8::1 refused"]) {
+    assert.equal(isLoopbackNavigationError(message), false, message);
+  }
+}
+
 const originalNodeEnv = process.env.NODE_ENV;
 const originalAllowLocalhost = process.env.CAMOUFOX_MCP_TEST_ALLOW_LOCALHOST;
 const originalAllowedPorts = process.env.CAMOUFOX_MCP_TEST_ALLOWED_LOCALHOST_PORTS;
