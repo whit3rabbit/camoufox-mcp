@@ -18,9 +18,9 @@ class FakePage extends EventEmitter {
   mainFrame() { return this.frame; }
   url() { return "https://example.com/same-url"; }
   waitForLoadState(_state, { timeout }) { assert.ok(timeout > 0 && timeout <= 10000); return Promise.resolve(); }
-  async phase(name) {
+  async phase(name, detail) {
     this.calls[name] = (this.calls[name] ?? 0) + 1;
-    await this.hooks[name]?.(this.calls[name]);
+    await this.hooks[name]?.(this.calls[name], detail);
   }
   navigate(emitNavigation = true) {
     this.generation += 1;
@@ -51,7 +51,7 @@ class FakePage extends EventEmitter {
   locator() {
     return { first: () => ({ ariaSnapshot: async ({ timeout }) => {
       assert.ok(timeout > 0 && timeout <= 3000);
-      await this.phase("aria");
+      await this.phase("aria", timeout);
       return `ARIA document ${this.generation}`;
     } }) };
   }
@@ -109,6 +109,23 @@ ariaError.hooks.aria = () => { throw new Error("ARIA snapshot unavailable"); };
 assert.equal((await read(ariaError)).ariaSnapshotError, "ARIA snapshot unavailable");
 assert.equal(ariaError.calls.aria, 1);
 
+// Playwright reports a started but uncommitted navigation as a locator timeout.
+// The wording is copied from playwright-core 1.59.0, which adds the target URL
+// once the navigation request is known.
+const pendingNavigationError = (target = "") => new Error(
+  `locator.ariaSnapshot: Timeout 3000ms exceeded.\nCall log:\n  - waiting for locator('body').first()\n    - waiting for${target} navigation to finish...\n`,
+);
+const pendingNavigation = new FakePage();
+pendingNavigation.hooks.aria = (call) => {
+  if (call === 1) throw pendingNavigationError();
+  if (call === 2) throw pendingNavigationError('" https://example.com/next"');
+  if (call === 3) pendingNavigation.navigate();
+};
+coherent(await read(pendingNavigation), 2, 404);
+assert.equal(pendingNavigation.calls.aria, 4, "a pending navigation must be waited for, then the new document read");
+assert.equal(pendingNavigation.calls.text, 2, "waiting for a pending navigation must not spend extraction attempts");
+assert.equal(pendingNavigation.handles, 0);
+
 const unstable = new FakePage();
 unstable.hooks.text = () => unstable.navigate();
 await assert.rejects(read(unstable), /could not stabilize after 3 attempts/);
@@ -153,6 +170,24 @@ try {
   rejectRead(new Error("Target closed"));
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(stalled.handles, 0);
+
+  // A navigation that never commits must not hold the read past its budget:
+  // the current document is returned with the wait reported as a diagnostic.
+  const neverCommits = new FakePage();
+  const waits = [];
+  neverCommits.hooks.aria = (_call, timeout) => {
+    waits.push(timeout);
+    mock.timers.tick(timeout);
+    throw pendingNavigationError();
+  };
+  const stale = await read(neverCommits);
+  assert.deepEqual(waits, [3000, 3000, 1500], "pending-navigation waits must leave time to read the next document");
+  assert.equal(stale.text, "document 1");
+  assert.equal(stale.status, 200);
+  assert.equal(stale.ariaSnapshot, undefined);
+  assert.match(stale.ariaSnapshotError, /waiting for navigation to finish/);
+  assert.equal(neverCommits.calls.text, 1);
+  assert.equal(neverCommits.handles, 0);
 } finally {
   mock.timers.reset();
 }

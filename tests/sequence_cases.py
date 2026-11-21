@@ -186,17 +186,22 @@ class SequenceCases:
 
     def test_call_tool_sequence_failure_reports_private_host_policy(self):
         print("--- Running Test: Sequence Failure Reports Private Host Policy ---")
+        # The request is issued after the first action's guard check, and the
+        # browser may hold it for seconds. The second action therefore waits on
+        # the request itself: the disabled control appears only once the fetch
+        # has settled, and clicking a disabled control fails at once.
         html = """<!doctype html>
 <html>
 <body>
-  <button id="arm" onclick="setTimeout(() => fetch('http://blocked.localhost:80/private?token=sequence-policy-secret#fragment').catch(() => {}), 1500)">Arm request</button>
+  <button id="arm" onclick="setTimeout(() => fetch('http://blocked.localhost:80/private?token=sequence-policy-secret#fragment').catch(() => {}).finally(() => { document.getElementById('settled').hidden = false; }), 1500)">Arm request</button>
+  <button id="settled" disabled hidden>Request settled</button>
 </body>
 </html>"""
         response = self._call_tool("browse_sequence", {
             "url": self._fixture_url(html),
             "actions": [
                 {"type": "click", "selector": "#arm"},
-                {"type": "waitFor", "selector": "#missing", "timeout": 3000},
+                {"type": "click", "selector": "#settled", "timeout": 30000},
             ],
             "geoip": False,
         }, timeout=90)

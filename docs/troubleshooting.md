@@ -81,6 +81,10 @@ issues below in one command.
     - Resolve the hostname from the same container or VM as the server and browser. Fix DNS or hosts entries for "Could not resolve URL host". Container `localhost` refers to the container, so allowlisting alone cannot reach a host-side server.
     - Metadata, link-local, AWS local-services, and reserved addresses remain blocked even for allowlisted names. These denials cannot be fixed with this setting. See [local development sites](server-policy.md#local-development-sites) for address scope.
 
+14. **A click or late request in the first seconds after launch takes several seconds**
+    - In default mode uBlock Origin holds requests issued shortly after launch until its filter lists have loaded, then releases them together. The initial navigation is not affected. See [requests held while uBlock Origin starts](browser-compatibility.md#requests-held-while-ublock-origin-starts).
+    - `browse_session_action` and `browse_session_snapshot` wait for a navigation that has started, up to their 10-second snapshot deadline. If the result still shows the old page with `ariaSnapshotError` mentioning "navigation to finish", take another snapshot or use a `waitFor` action for content on the new page. Do not repeat the click.
+
 ### Debug Mode
 
 To see detailed logs, run the server directly:

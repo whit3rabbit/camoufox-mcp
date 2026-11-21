@@ -49,6 +49,27 @@ Focused extractors have finite count and per-field limits. A shared response byt
 
 Snapshot extraction reads text, interactive metadata, and ARIA separately. It now detects main-frame navigation and document replacement, including reloads at the same URL, with up to three extraction attempts within a 10-second deadline. Continued navigation returns an error rather than a mixed snapshot. Response metadata follows the document after it commits and reaches `DOMContentLoaded`. Actions are not replayed by the retry. Use an explicit `waitFor` action when a page must reach a particular state. DOM changes within one document remain live.
 
+## Requests held while uBlock Origin starts
+
+In default mode, a request issued a few seconds after launch can reach the network seconds late. uBlock Origin suspends network activity until its filter lists have loaded (its `suspendUntilListsAreLoaded` setting, on by default in Firefox). Every launch uses a fresh profile, so the lists are loaded from scratch each time. Requests issued before the addon starts listening pass at once, which is why the initial navigation is not delayed. Requests issued after that and before the lists are ready are held and then released together.
+
+Measured on 2026-11-21 on Linux x86_64 in a 4-CPU cloud container (Node 22.23, Xvfb, beta.28, uBlock Origin 1.76.6), with timers that fire on time in the page:
+
+| Request issued after launch | Result |
+| --- | --- |
+| up to about 2 s | passes at once |
+| about 2 s to 6 s | held, then all released together at about 6 s |
+| later, or after 10 s idle before the first load | passes at once |
+
+Excluding the addon removes the delay entirely, and `headless: true` behaves the same as the virtual display. Pinning the browser to one CPU moved the release to about 7.5 s. `network.http.throttle.enable`, `network.http.tailing.enabled`, the connectivity and captive-portal services, `network.proxy.type`, the proxy environment variables, and `humanize` were ruled out earlier. Other machines were not measured: the window's length there is unknown, and the timing-dependent cases have passed on GitHub Actions. Compatibility mode was not re-measured for this; an earlier probe on that build saw about 0.6 s.
+
+`node tests/probe_startup_request_hold.mjs` repeats the measurement (`--no-ubo` excludes the addon, `--idle` waits before loading).
+
+The server does not change the addon's setting: releasing requests early would let them bypass filtering. Consequences for callers:
+
+- A late subresource, `fetch`, or script-driven navigation in the first seconds of a launch arrives later than the page scheduled it. Use a `waitFor` action for content that depends on it.
+- A click that starts a navigation in that window returns before the navigation commits. Snapshot reads wait for a started navigation, within their 10-second deadline, and then describe the new document. They never repeat the action. A navigation that does not commit in time returns the current document with `ariaSnapshotError` naming the wait.
+
 ## Release and download policy
 
 As of 2026-11-21:
@@ -66,7 +87,7 @@ Avoid `camoufox-js fetch`: its release-list selection previously picked beta.31 
 Current pins, checked on 2026-11-21 on Linux x86_64 in a cloud container (Node 22.23, Xvfb):
 
 - **Compatibility mode, `camoufox` 0.5.9 with 158.0.1-beta.41:** the Python browser suite passed 74 of 74 cases in two consecutive runs with GeoIP enabled, including the four private-WebSocket cases and the screenshot cases, with no non-protocol output on stdout. The pinned installer verified the archive digest and the bundled uBlock Origin addon. All six platform archives were hashed and each digest equals the one upstream publishes for the release; only the Linux x86_64 archive was installed and run.
-- **Default mode, `camoufox-js` 0.12.0 with 152.0.4-beta.28:** 73 of 74 cases, both with GeoIP enabled and with `--no-geoip`, with no non-protocol output on stdout. The failing case, `test_call_tool_sequence_failure_reports_private_host_policy`, also fails on the code before these changes in that container: there the beta.28 build issues a request scheduled 1.5 s after load about 2 s late, past the test's 3 s wait. Three other cases that depend on the same timing failed intermittently on the earlier code and passed in these runs.
+- **Default mode, `camoufox-js` 0.12.0 with 152.0.4-beta.28:** 74 of 74 cases with `--no-geoip` in one full run, with no non-protocol output on stdout; that container could not fetch the GeoIP database, so GeoIP-enabled launches were not exercised in this run. Before the timing changes above, four cases that depend on a request issued after load failed there in three of three runs: uBlock Origin held the request past each fixed wait (see [requests held while uBlock Origin starts](#requests-held-while-ublock-origin-starts)). With the changes those four passed in eight consecutive runs. An earlier run on the previous code recorded 73 of 74 with GeoIP enabled.
 - **Not checked there:** doctor's live smoke test (the container's TLS-intercepting proxy breaks any public HTTPS browse), the Docker image, macOS, and Windows. Use the matching CI run for those.
 
 Earlier evidence for the previous pins: all 64 Python browser-suite cases passed in both modes on macOS arm64 with beta.28 and beta.33, and doctor completed a real browse in both. The worker probes above establish the remaining interception gap.

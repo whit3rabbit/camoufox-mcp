@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Snapshot reads wait for a main-frame navigation that has started but not committed, within their existing 10-second deadline, then describe the new document. A `browse_session_action` click on a link could return the outgoing page with an ARIA timeout when the browser was slow to issue the navigation request. Actions are never repeated. A navigation that does not commit in time still returns the current document with `ariaSnapshotError`.
+- Documented why requests issued a few seconds after launch arrive late in default mode: uBlock Origin holds them until its filter lists have loaded. Four browser-suite cases that relied on fixed sleeps or 3-second waits now wait for the outcome up to a deadline. `tests/probe_startup_request_hold.mjs` measures the hold.
 - Generated selectors from snapshot, links, forms, outline, and find are anchored at the nearest ancestor with an id or at the document root. Paths were cut at depth 8, leaving a relative selector that could act on a different element. Radio and checkbox options, and same-named fields in different forms, get distinct selectors.
 - Element screenshots of a target partly off the left or top edge capture the visible part instead of a shifted region.
 - `browse_find` reports every non-overlapping match with correct offsets for text whose case-folding changes its length, and matches queries containing repeated spaces.

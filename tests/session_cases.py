@@ -97,9 +97,11 @@ class SessionCases:
                 assert "Missing page" in first_snapshot.get("ariaSnapshot", ""), first_snapshot
             # DOM activation can return before navigation, so wait for content
             # unique to the new document before checking response metadata.
+            # The wait ends as soon as the heading shows; the allowance covers
+            # a navigation request the browser holds during startup.
             action = self._run_tool("browse_session_action", {
                 "sessionId": session_id,
-                "action": {"type": "waitFor", "selector": "h1", "state": "visible", "timeout": 5000},
+                "action": {"type": "waitFor", "selector": "h1", "state": "visible", "timeout": 20000},
                 "maxChars": 1000,
                 "maxElements": 20
             }, timeout=90)
@@ -423,10 +425,13 @@ class SessionCases:
                     "maxChars": 1000,
                     "maxElements": 20,
                 }, timeout=30)
-                response = self._call_tool("browse_session_action", {
+                # Each wait fails because the element never appears. Repeat it
+                # until the failure carries the policy block: the browser may
+                # hold the request well past the moment the page issued it.
+                response = self._call_tool_until("browse_session_action", {
                     "sessionId": session_id,
-                    "action": {"type": "waitFor", "selector": "#ready", "timeout": 3000},
-                }, timeout=15)
+                    "action": {"type": "waitFor", "selector": "#ready", "timeout": 1000},
+                }, lambda reply: "blocked unsafe browser request" in self.get_tool_text(reply).lower(), interval=0, timeout=15)
                 assert response and response.get("result", {}).get("isError"), response
                 error = self.get_tool_text(response)
                 assert "blocked unsafe browser request" in error.lower(), error
@@ -468,11 +473,13 @@ class SessionCases:
                 assert "not allowed" in self.get_tool_text(navigate).lower() or "blocked unsafe" in self.get_tool_text(navigate).lower()
             else:
                 assert "safe first" in self.get_tool_payload(navigate)["text"]
-                time.sleep(3.5)
-                snapshot = self._call_tool("browse_session_snapshot", {
+                # Snapshots succeed until the delayed request is issued and
+                # rejected, which the browser may defer well beyond the page's
+                # own timer. The first failing read must name the policy.
+                snapshot = self._call_tool_until("browse_session_snapshot", {
                     "sessionId": session_id,
                     "maxChars": 1000
-                }, timeout=30)
+                }, lambda reply: reply.get("result", {}).get("isError"))
                 assert snapshot and snapshot.get("result", {}).get("isError"), snapshot
                 snapshot_error = self.get_tool_text(snapshot).lower()
                 assert "not allowed" in snapshot_error or "blocked unsafe" in snapshot_error, snapshot

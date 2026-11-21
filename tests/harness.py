@@ -361,6 +361,20 @@ class MCPTestClient:
         })
         return self.get_response(request_id, timeout=timeout)
 
+    def _call_tool_until(self, method, params, accept, deadline=30, interval=0.5, timeout=30):
+        """Repeat a call until accept(response) holds or the deadline passes.
+
+        Browser-side timing is not fixed: the default build's uBlock Origin holds
+        requests issued shortly after launch until its filter lists have loaded.
+        Returns the last response either way, so the caller's assertions report it.
+        """
+        give_up_at = time.time() + deadline
+        while True:
+            response = self._call_tool(method, params, timeout=timeout)
+            if (response and accept(response)) or time.time() >= give_up_at:
+                return response
+            time.sleep(interval)
+
     def get_response(self, request_id, timeout=30):
         start_time = time.time()
         while time.time() - start_time < timeout:
