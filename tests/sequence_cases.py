@@ -51,7 +51,8 @@ class SequenceCases:
         response = self._run_sequence({
             "url": self._fixture_url(html),
             "actions": [
-                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 3000}
+                # See the fallback case below for why the timeout is generous.
+                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 6000}
             ],
             "maxChars": 2000
         }, timeout=90)
@@ -80,7 +81,11 @@ class SequenceCases:
         response = self._run_sequence({
             "url": self._fixture_url(html),
             "actions": [
-                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 1000}
+                # One timeout covers the pointer trial and the DOM click. The
+                # trial may use half of it, and under Xvfb it never passes. The
+                # DOM click then took up to about 0.7 s in measurement, more
+                # than a 1 s timeout leaves it.
+                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 6000}
             ],
             "maxChars": 2000
         }, timeout=90)
