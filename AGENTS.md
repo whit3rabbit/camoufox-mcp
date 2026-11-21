@@ -235,7 +235,6 @@ Start and manipulate isolated, short-lived browser sessions. Sessions are epheme
 - MCP cancellation reaches the runtime through `src/request-context.ts`. Read the signal synchronously at the start of an operation; Playwright callbacks inherit the launching request's context.
 - Snapshot reads allow up to three extraction attempts within 10 seconds and fail if navigation continues. Preserve the document-identity check for reloads at the same URL, and never replay actions during extraction retries.
 - A snapshot read waits for a main-frame navigation that has started but not committed, within the same 10 seconds, then re-reads the new document. It recognises the wait from playwright-core 1.59.0's call-log wording (`waiting for ... navigation to finish`); recheck `isPendingNavigationTimeout` in `src/extractors/snapshot.ts` when the Playwright pin changes. A navigation that does not commit in time returns the current document with `ariaSnapshotError`.
-- In default mode uBlock Origin holds requests issued a few seconds after launch until its filter lists load (about 2 s to 6 s after launch in one measured container). Browser tests must wait for an outcome up to a deadline, never sleep for a fixed time. See `docs/browser-compatibility.md` and `tests/probe_startup_request_hold.mjs`.
 - Click actions support `clickMode`: `dom` is the default CI/Xvfb-stable DOM activation path, `pointer` uses Playwright pointer input, and `auto` tries pointer first before DOM fallback.
 - `camoufox_status.networkSecurity` reports application-layer best-effort SSRF policy and conservative network sandbox posture. Dedicated-worker WebSockets evade the frame-based routing guard in both browser modes. Untrusted browsing requires actual VM, firewall, filtering proxy, or controlled container egress rules. Docker/container detection is not proof of egress filtering.
 - CAPTCHA handling is manual by default. `captchaPolicy: "attempt"` returns challenge metadata, interactive elements, a bounded screenshot, and a suggested strategy. When `CAPTCHA_AUTONOMOUS=true` is set, responses use `challengeHandling: "llm_assisted"` and include provider-specific `challengePlaybook` context when known. The server never solves CAPTCHAs itself or invokes an external skill.
@@ -245,3 +244,40 @@ Start and manipulate isolated, short-lived browser sessions. Sessions are epheme
 - Cross-platform support with architecture-specific browser fetching
 - Screenshot capture returns base64-encoded PNG data
 - Enhanced logging with colored output for better debugging
+
+## Gotchas
+
+Each of these cost time to find. Dates and numbers are from one Linux x86_64 cloud container on 2026-11-21 unless stated.
+
+### Environment and setup
+
+- **`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` changes three things.** Cloud and CI images often set it. `npm run fetch:camoufox` then prints a skip notice and exits 0 without installing anything. `camoufox-js` also skips registering the installed uBlock Origin addon at launch and prints a notice to stdout. The server deletes the variable in `src/stdio-guard.ts`; a script that imports `camoufox-js` directly does not, so it silently runs without the addon. Unset it for the fetch (`env -u PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD npm run fetch:camoufox`) and delete it at the top of any direct probe.
+- **The default-mode fetch downloads GeoIP before the addon.** Where `api.github.com` is unreachable for the GeoLite release, the fetch throws after installing the browser and never reaches the uBlock Origin download. Launches then fail the addon preflight. Either fix network access and rerun the fetch, or install the addon alone with `maybeDownloadAddons(DefaultAddons)` from `camoufox-js/dist/addons.js`, and run the client with `--no-geoip`.
+- **Default mode does not pin uBlock Origin.** `camoufox-js` downloads `latest.xpi` from addons.mozilla.org at fetch time (1.76.6 in the measured run). Addon behaviour can therefore differ between machines and over time. Compatibility mode uses the copy inside the browser archive.
+- **A container's browser may have no route to the internet.** Behind a TLS-intercepting proxy, public HTTPS pages fail, so doctor's live smoke test fails there. The client suite needs only its local fixture server.
+- **`npm run build` deletes `dist/` first.** Running it, or `npm run test:unit`, while the client suite is running kills the server under test. Wait for the suite to finish.
+- **Scripts outside the repository cannot resolve `camoufox-js`.** Keep diagnostics under `tests/` or import by absolute path.
+
+### Browser timing
+
+- **uBlock Origin holds requests during startup in default mode.** It suspends network activity until its filter lists load, and every launch uses a fresh profile. Requests issued about 2 s to 6 s after launch were held and released together; earlier and later ones passed at once. The initial navigation is not delayed. `exclude_addons` removes the hold, and so does idling 10 s before the first load. `tests/probe_startup_request_hold.mjs` measures it; `docs/browser-compatibility.md` has the details. Do not blame the browser build or network prefs before checking this.
+- **Timers in the page still fire on time during the hold.** A `setTimeout` runs when scheduled; only the request it issues is late. Playwright's `request` event and route handler fire at the late moment too.
+- **A click can return before its navigation starts on the wire.** The snapshot read waits for it (see Key Implementation Details). Text and elements are read from the outgoing document first and discarded when the document changes.
+- **Playwright reports a pending navigation in two forms.** `waiting for navigation to finish...` before the request is known, and `waiting for" <url>" navigation to finish...` after, with no space before the quote. Match both.
+- **The pointer trial of `clickMode: "auto"` never passes under Xvfb.** It waits on Playwright's stability check until its share of the timeout ends, which is half of what remains. The DOM click gets the rest and took up to about 0.7 s. An `auto` click with a timeout near 1 s therefore fails intermittently with `Click action timed out`. Tests use 6 s; callers should not pair `auto` with short timeouts.
+
+### Tests and CI
+
+- **Never wait a fixed time for a browser-side outcome.** Poll with `_call_tool_until` or use a generous action timeout that ends early on success.
+- **A `browse_sequence` case cannot poll across calls.** To wait on a request inside one call and still exercise the failed-action path, have the page reveal a disabled control when the request settles and click it: the click waits for visibility, then fails at once on the disabled check.
+- **A prevented block is reported once.** After `takeBlock`, the next session call succeeds. A polling test must stop at the first response that carries the block.
+- **The client stops at the first failing case unless `--keep-going` is passed.** CI does not pass it, so a red job says nothing about the cases after the failure. It also does not print tool responses; drive the scenario through `MCPTestClient` in a short script to see one.
+- **The Docker test job needs the test matrix.** One red test job skips it, so a skipped Docker job is not evidence about the image.
+- **The stderr feature summary uses the caller's arguments, not the effective settings.** `geoip: disabled` appears whenever `geoip` was omitted, although GeoIP is on by default, and `WebRTC: blocked` is missing when blocking is only the default. Do not read launch settings from that line.
+- **A test that passed locally in a slow container can fail in CI and the reverse.** The auto-click case passed a full local run and failed on one of four CI jobs. Repeat a timing-sensitive case several times before calling it stable.
+
+### Dependencies
+
+- **Dependabot alerts are computed on the default branch.** A clean `npm audit` on a feature branch clears nothing until it merges. Check both: `npm audit` on the branch, and the alerts page after the merge.
+- **`npm audit` must stay at 0 before a release.** `test:all` runs it. `package-lock.json` is the only lockfile; `plugins/camoufox/package.json` declares no dependencies.
+- **The browser stack is excluded from Dependabot version updates** (`playwright-core`, `camoufox-js`, `camoufox`), because those pins are a tested set. Security advisories for them still open pull requests; treat one as a pin change and run the full browser suite in the affected mode.
