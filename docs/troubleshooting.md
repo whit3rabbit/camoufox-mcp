@@ -16,7 +16,7 @@ issues below in one command.
 
 2. **"Cannot find module"**
    - Repository builds require Node.js >=22.15 and `npm install --include=optional`; the published default runtime supports Node.js >=22.0.
-   - Compatibility mode requires the optional `@camoufox/camoufox` launcher. If npm skipped it, use Node.js >=22.15 and reinstall with `--include=optional` before enabling `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1`.
+   - Compatibility mode requires the optional `camoufox` launcher. If npm skipped it, use Node.js >=22.15 and reinstall with `--include=optional` before enabling `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1`.
    - For global install: `npm install -g camoufox-mcp-server@latest`
 
 3. **"MCP server not responding"**
@@ -60,7 +60,8 @@ issues below in one command.
 
 10. **Browser fails to launch / `Library not loaded: @rpath/libmozglue.dylib` after changing binary versions**
     - Overlaying browser builds can corrupt the cached bundle. The pinned installer clears the selected cache when replacing a build. Run `npm run fetch:camoufox` with the same environment as the server.
-    - Default caches are `~/Library/Caches/camoufox` on macOS and `~/.cache/camoufox` on Linux. Compatibility mode uses a `camoufox-compatibility` sibling unless `CAMOUFOX_INSTALL_DIR` is set. `XDG_CACHE_HOME` does not select the browser directory.
+    - Default caches are `~/Library/Caches/camoufox` on macOS and `~/.cache/camoufox` on Linux. Compatibility mode uses a `camoufox-compatibility` sibling unless `CAMOUFOX_INSTALL_DIR` is set. `XDG_CACHE_HOME` does not select the browser directory. On Windows the compatibility sibling is `%LOCALAPPDATA%\\camoufox\\camoufox\\Cache-compatibility`.
+    - "Compatibility fingerprint model is missing" or "GeoIP database is missing" after installing or repairing the default browser: The launcher keeps its fingerprint model and GeoIP databases in its own cache directory (`~/.cache/camoufox` on Linux, following `XDG_CACHE_HOME`; `~/Library/Caches/camoufox` on macOS), which `CAMOUFOX_INSTALL_DIR` does not move. A default-mode browser install replaces that directory, so rerun the compatibility fetch afterwards.
     - If metadata matches but libraries are corrupt, stop the MCP process, remove or move aside that exact cache directory, and run the pinned installer again. `npm run doctor` reports which directory and build it expects.
 
 11. **`Browser.setDefaultViewport ... isMobile ... not described in this scheme`, or anti-detection regressed after `npx @latest`**
@@ -79,6 +80,10 @@ issues below in one command.
     - Check `camoufox_status.networkSecurity.allowedPrivateHosts` after restart. This is not a `browse` parameter, and `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` does not enable it. Entries cannot contain IP literals, wildcards, URLs, or ports.
     - Resolve the hostname from the same container or VM as the server and browser. Fix DNS or hosts entries for "Could not resolve URL host". Container `localhost` refers to the container, so allowlisting alone cannot reach a host-side server.
     - Metadata, link-local, AWS local-services, and reserved addresses remain blocked even for allowlisted names. These denials cannot be fixed with this setting. See [local development sites](server-policy.md#local-development-sites) for address scope.
+
+14. **A click or late request in the first seconds after launch takes several seconds**
+    - In default mode uBlock Origin holds requests issued shortly after launch until its filter lists have loaded, then releases them together. The initial navigation is not affected. See [requests held while uBlock Origin starts](browser-compatibility.md#requests-held-while-ublock-origin-starts).
+    - `browse_session_action` and `browse_session_snapshot` wait for a navigation that has started, up to their 10-second snapshot deadline. If the result still shows the old page with `ariaSnapshotError` mentioning "navigation to finish", take another snapshot or use a `waitFor` action for content on the new page. Do not repeat the click.
 
 ### Debug Mode
 

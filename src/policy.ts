@@ -1,6 +1,11 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { ALLOWED_PRIVATE_HOSTS, readAllowedPrivateHosts } from "./config.js";
+import { ALLOWED_PRIVATE_HOSTS, DNS_LOOKUP_TIMEOUT_MS, readAllowedPrivateHosts } from "./config.js";
+import { withTimeout } from "./utils.js";
+
+export type HostResolver = (hostname: string) => Promise<Array<{ address: string }>>;
+
+const systemResolver: HostResolver = (hostname) => lookup(hostname, { all: true, verbatim: true });
 
 const allowedPrivateHosts = new Set(ALLOWED_PRIVATE_HOSTS);
 
@@ -20,7 +25,7 @@ export function normalizeHostname(hostname: string): string {
     .toLowerCase()
     .replace(/^\[/, "")
     .replace(/\]$/, "")
-    .replace(/\.$/, "");
+    .replace(/\.+$/, "");
 }
 
 export function isBlockedHostname(hostname: string): boolean {
@@ -215,17 +220,24 @@ function buildIpv6Cidr(base: string, prefix: number): Ipv6Cidr {
   return { base: value, prefix };
 }
 
+// NAT64 well-known prefix (RFC 6052): the low 32 bits are an IPv4 address the
+// gateway forwards to. On DNS64 networks every IPv4-only site resolves here, so
+// the embedded address decides, not the prefix.
+const NAT64_WELL_KNOWN_CIDR = buildIpv6Cidr("64:ff9b::", 96);
+
 const BLOCKED_IPV6_CIDRS: Ipv6Cidr[] = [
-  buildIpv6Cidr("::", 128),
-  buildIpv6Cidr("::1", 128),
-  buildIpv6Cidr("64:ff9b::", 96),
-  buildIpv6Cidr("64:ff9b:1::", 48),
+  // Reserved by IETF. Covers unspecified, loopback, IPv4-compatible (::a.b.c.d),
+  // IPv4-translated (::ffff:0:a.b.c.d) and local-use NAT64 (64:ff9b:1::/48).
+  // IPv4-mapped and well-known NAT64 addresses are decoded before this list.
+  buildIpv6Cidr("::", 8),
   buildIpv6Cidr("100::", 64),
   buildIpv6Cidr("2001::", 23),
   buildIpv6Cidr("2001:db8::", 32),
   buildIpv6Cidr("2002::", 16),
   buildIpv6Cidr("fc00::", 7),
   buildIpv6Cidr("fe80::", 10),
+  // Deprecated site-local range; still routed inside some private networks.
+  buildIpv6Cidr("fec0::", 10),
   buildIpv6Cidr("ff00::", 8),
 ];
 
@@ -247,6 +259,11 @@ export function isBlockedIpv6(address: string): boolean {
   const value = parseIpv6ToBigInt(lower);
   if (value === undefined) {
     return true;
+  }
+
+  if (isIpv6InCidr(value, NAT64_WELL_KNOWN_CIDR)) {
+    const embedded = Number(value & 0xffffffffn);
+    return isBlockedIpv4([embedded >>> 24, (embedded >>> 16) & 255, (embedded >>> 8) & 255, embedded & 255].join("."));
   }
 
   return BLOCKED_IPV6_CIDRS.some((cidr) => isIpv6InCidr(value, cidr));
@@ -365,7 +382,7 @@ export function parseAndValidateTargetUrl(rawUrl: string): ParsedTargetUrl {
   };
 }
 
-export async function validateTargetUrl(rawUrl: string): Promise<URL> {
+export async function validateTargetUrl(rawUrl: string, resolveHost: HostResolver = systemResolver): Promise<URL> {
   const { parsed, hostname, needsDnsCheck } = parseAndValidateTargetUrl(rawUrl);
 
   if (!needsDnsCheck) {
@@ -374,7 +391,9 @@ export async function validateTargetUrl(rawUrl: string): Promise<URL> {
 
   let records: Array<{ address: string }>;
   try {
-    records = await lookup(hostname, { all: true, verbatim: true });
+    // getaddrinfo has no deadline of its own. A resolver that never answers
+    // must fail closed instead of holding the request guard open.
+    records = await withTimeout(resolveHost(hostname), DNS_LOOKUP_TIMEOUT_MS, "DNS lookup");
   } catch {
     throw new Error("Could not resolve URL host.");
   }
@@ -418,6 +437,19 @@ export function parseAndValidateBrowserRequestUrl(rawUrl: string): ParsedTargetU
   return parseAndValidateTargetUrl(browserRequestPolicyUrl(rawUrl));
 }
 
-export async function validateBrowserRequestUrl(rawUrl: string): Promise<URL> {
-  return validateTargetUrl(browserRequestPolicyUrl(rawUrl));
+export async function validateBrowserRequestUrl(rawUrl: string, resolveHost?: HostResolver): Promise<URL> {
+  return validateTargetUrl(browserRequestPolicyUrl(rawUrl), resolveHost);
+}
+
+export function resolveSystemHost(hostname: string): Promise<Array<{ address: string }>> {
+  return systemResolver(hostname);
+}
+
+// Playwright reports a refused or rejected loopback connection with the address
+// in the message. Used to label a failed navigation as a policy block. Bracketed
+// and bare IPv6 loopback need explicit boundaries: \b cannot anchor on ":".
+const LOOPBACK_ERROR_PATTERN = /(?:\b(?:127\.0\.0\.1|localhost|ip6-localhost|ip6-loopback)\b|(?<![0-9a-f:])::1(?![0-9a-f:]))/;
+
+export function isLoopbackNavigationError(message: string): boolean {
+  return LOOPBACK_ERROR_PATTERN.test(message.toLowerCase());
 }

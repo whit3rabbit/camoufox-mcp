@@ -53,7 +53,7 @@ If `camoufox_status` reports `browserAvailable: false` even after downloading th
 
 ### Browser modes
 
-The default remains beta.28 with `camoufox-js` 0.12.0 and direct `playwright-core` 1.59.0. Opt-in beta.33 uses optional `@camoufox/camoufox` 0.5.7-beta.4 on Node >=22.15. Repository builds require `npm install --include=optional`.
+The default remains beta.28 with `camoufox-js` 0.12.0 and direct `playwright-core` 1.59.0. Opt-in beta.41 uses the optional official `camoufox` 0.5.9 launcher on Node >=22.15. Repository builds require `npm install --include=optional`.
 
 Use `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` for installation, doctor, and the host's MCP server environment. Compatibility otherwise uses a separate `camoufox-compatibility` sibling cache. Inspect `camoufox_status.browserCompatibility` for mode, versions, launcher, and warning. Both supported modes run automation in the page world. Worker WebSockets evade interception in both modes; untrusted browsing requires actual network egress controls.
 

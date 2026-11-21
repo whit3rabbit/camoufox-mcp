@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { runSequenceActionsWithBudget, sequenceTimeoutBudget } from "../dist/sequence.js";
+import { activateElement, findDisallowedAction, runSequenceActionsWithBudget, sequenceTimeoutBudget } from "../dist/sequence.js";
+import { OperationTimeoutError, isOperationTimeout } from "../dist/utils.js";
 import { installRequestGuard } from "../dist/browser-runtime.js";
 import { DEFAULT_ACTION_TIMEOUT_MS, MAX_SEQUENCE_ACTIONS, SEQUENCE_TIMEOUT_MS } from "../dist/config.js";
 
@@ -26,6 +27,8 @@ assert.ok(
 // 26 actions should exceed MAX_SEQUENCE_ACTIONS logically but the budget check is
 // purely additive; verify the budget math scales linearly.
 assert.equal(sequenceTimeoutBudget(Array.from({ length: 26 }, defaultClickAction)), 260000);
+
+const passingGuard = { assertAllowed() {}, async settle() {}, async assertSettled() {}, takeBlock() {}, reset() {} };
 
 let guardHttpRequest;
 const requestGuard = await installRequestGuard({
@@ -64,14 +67,68 @@ assert.equal(abortedRequests, 1);
 
 await assert.rejects(runSequenceActionsWithBudget({
   async waitForSelector() { throw actionError; },
-}, { assertAllowed() {} }, [
+}, passingGuard, [
   { type: "waitFor", selector: "#missing", timeout: 1000 },
 ], [], []), (error) => error === actionError, "ordinary action errors retain their original identity");
 
 await assert.rejects(runSequenceActionsWithBudget({
   keyboard: { press: () => new Promise(() => {}) },
-}, { assertAllowed() {} }, [
+}, passingGuard, [
   { type: "press", key: "Enter", timeout: 1 },
-], [], []), /Press action timed out\./, "local action timeouts retain their original behavior");
+], [], []), (error) => {
+  assert.match(error.message, /Press action timed out\./, "local action timeouts retain their original message");
+  assert.ok(isOperationTimeout(error), "local timeouts are identified by type");
+  return true;
+});
+
+// Page code can throw any text. Only this server's own deadline counts as a
+// local timeout, so a page cannot close a session by imitating the message.
+assert.equal(isOperationTimeout(new Error("Something timed out.")), false);
+assert.equal(isOperationTimeout(new OperationTimeoutError("Click action")), true);
+
+await assert.rejects(runSequenceActionsWithBudget({
+  mouse: { wheel: () => new Promise(() => {}) },
+}, passingGuard, [
+  { type: "scroll", deltaX: 0, deltaY: 100, timeout: 1 },
+], [], []), /Scroll action timed out\./, "a hung wheel scroll is bounded");
+
+// evaluate is refused before launch unless enabled, whatever precedes it.
+assert.match(findDisallowedAction([{ type: "click", selector: "#a" }, { type: "evaluate", expression: "1" }]) ?? "", /Evaluate action is disabled/);
+assert.equal(findDisallowedAction([{ type: "click", selector: "#a" }]), undefined);
+
+// clickMode "auto": a failed trial dispatched nothing, so the DOM fallback is
+// safe. Once the trial passes, a failing pointer click may already have
+// delivered events and must not be followed by a second, DOM click.
+function fakeClickPage({ trialFails, clickFails }) {
+  const calls = [];
+  const locator = {
+    first() { return locator; },
+    async waitFor() {},
+    async isEnabled() { return true; },
+    async click(options) {
+      calls.push(options.trial ? "trial" : "pointer");
+      if (options.trial && trialFails) throw new Error("element is covered");
+      if (!options.trial && clickFails) throw new Error("pointer click failed midway");
+    },
+    async evaluate() { calls.push("dom"); },
+  };
+  return { calls, page: { locator: () => locator } };
+}
+
+const covered = fakeClickPage({ trialFails: true });
+await activateElement(covered.page, "#a", 1000, undefined, "auto");
+assert.deepEqual(covered.calls, ["trial", "dom"], "a failed trial falls back to one DOM click");
+
+const pointerOk = fakeClickPage({});
+await activateElement(pointerOk.page, "#a", 1000, undefined, "auto");
+assert.deepEqual(pointerOk.calls, ["trial", "pointer"]);
+
+const midway = fakeClickPage({ clickFails: true });
+await assert.rejects(activateElement(midway.page, "#a", 1000, undefined, "auto"), /pointer click failed midway/);
+assert.deepEqual(midway.calls, ["trial", "pointer"], "no DOM click after a pointer click that may have landed");
+
+const domDefault = fakeClickPage({});
+await activateElement(domDefault.page, "#a", 1000);
+assert.deepEqual(domDefault.calls, ["dom"], "the default mode stays a DOM click");
 
 console.log("Sequence unit tests passed.");

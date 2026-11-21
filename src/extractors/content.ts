@@ -184,7 +184,8 @@ export async function extractPageContent(
           }
         }
 
-        truncated = truncated || stack.length > 0 || visitedNodes >= maxNodes || html.length > maxLength;
+        // Reaching the node limit exactly, with nothing left to visit, is not truncation.
+        truncated = truncated || stack.length > 0 || html.length > maxLength;
         return {
           value: html.slice(0, maxLength),
           truncated,
@@ -262,7 +263,8 @@ export async function extractPageContent(
         .replace(/[ \t]+\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
-      truncated = truncated || stack.length > 0 || visitedNodes >= maxNodes || text.length > maxLength || normalizedText.length > maxLength;
+      // Only unvisited nodes mean content was left out; leftover closing markers do not.
+      truncated = truncated || stack.some((entry) => !entry.closing) || text.length > maxLength || normalizedText.length > maxLength;
       return {
         value: normalizedText.slice(0, maxLength),
         truncated,

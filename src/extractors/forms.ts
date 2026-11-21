@@ -29,19 +29,33 @@ export async function extractForms(
         if (element.id) {
           return `#${cssIdent(element.id)}`;
         }
-        if (element instanceof HTMLInputElement && element.name) {
-          return `input[name="${element.name.replaceAll("\"", "\\\"")}"]`;
-        }
-        if (element instanceof HTMLTextAreaElement && element.name) {
-          return `textarea[name="${element.name.replaceAll("\"", "\\\"")}"]`;
-        }
-        if (element instanceof HTMLSelectElement && element.name) {
-          return `select[name="${element.name.replaceAll("\"", "\\\"")}"]`;
+        // Name-based selectors read best, but radio and checkbox groups share a
+        // name, as do same-named fields in different forms. Use one only when
+        // it identifies this element.
+        const name = element.getAttribute("name");
+        if (name && (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) {
+          const attr = (value: string): string => value.replace(/["\\]/g, "\\$&");
+          const candidates = [`${element.tagName.toLowerCase()}[name="${attr(name)}"]`];
+          if (element instanceof HTMLInputElement && (element.type === "radio" || element.type === "checkbox")) {
+            candidates.unshift(`input[name="${attr(name)}"][value="${attr(element.value)}"]`);
+          }
+          for (const candidate of candidates) {
+            const matched = document.querySelectorAll(candidate);
+            if (matched.length === 1 && matched[0] === element) {
+              return candidate;
+            }
+          }
         }
 
         const path: string[] = [];
         let current: Element | null = element;
-        while (current && current !== document.documentElement && path.length < 8) {
+        // Walk to the nearest ancestor with an id, or to the root. A path cut off
+        // at a fixed depth is relative and matches the first similar subtree.
+        while (current && current !== document.documentElement) {
+          if (current !== element && current.id) {
+            path.unshift(`#${cssIdent(current.id)}`);
+            break;
+          }
           let part = current.tagName.toLowerCase();
           const parent: Element | null = current.parentElement;
           if (parent) {
@@ -112,7 +126,9 @@ export async function extractForms(
       let fieldCount = 0;
       let truncated = false;
       for (const form of formCandidates) {
-        if (forms.length >= maxFormItems) {
+        // Once the field budget is spent, later forms would be listed with no
+        // fields, which reads as "this form is empty".
+        if (forms.length >= maxFormItems || fieldCount >= maxFieldItems) {
           truncated = true;
           break;
         }

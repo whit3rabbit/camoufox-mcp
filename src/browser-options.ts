@@ -1,7 +1,7 @@
 import type { Browser } from "playwright-core";
 import chalk from "chalk";
 import { validateTargetUrl } from "./policy.js";
-import { ALLOW_UNSAFE_OPTIONS, DENIED_BROWSER_ARG_FLAGS, DENIED_FIREFOX_PREF_KEYS, DENIED_FIREFOX_PREF_PREFIXES } from "./config.js";
+import { ALLOW_UNSAFE_OPTIONS, DENIED_BROWSER_ARG_FLAGS, DENIED_FIREFOX_PREF_KEYS, DENIED_FIREFOX_PREF_PREFIXES, VALUED_BROWSER_ARG_FLAGS } from "./config.js";
 import type { BrowserLaunchInput, CamoufoxOptions, CommonBrowserInput, HeadlessMode, ProxyConfig, SupportedOs } from "./types.js";
 import { describeError, getProxyServer } from "./utils.js";
 
@@ -35,6 +35,14 @@ export async function validateBrowserOptionsInput(input: BrowserLaunchInput): Pr
     );
   }
 
+  // WebRTC connects to ICE/TURN servers the page chooses, over transports the
+  // request guard never sees, so re-enabling it is an unsafe option as well.
+  if (!ALLOW_UNSAFE_OPTIONS && input.block_webrtc === false) {
+    throw new Error(
+      "block_webrtc: false is disabled by server policy. WebRTC bypasses the request guard. Set CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1 to allow it.",
+    );
+  }
+
   const deniedUnsafeOption = findDeniedUnsafeBrowserOption(input.args, input.firefox_user_prefs);
   if (deniedUnsafeOption) {
     throw new Error(`Unsafe browser option is denied by server policy: ${deniedUnsafeOption}.`);
@@ -53,20 +61,66 @@ export function hasUnsafeBrowserOptions(
   );
 }
 
+interface ParsedBrowserArg {
+  // Flag as written, lower-cased, without any inline value.
+  flag: string;
+  // Flag name without leading dashes.
+  name: string;
+  value?: string;
+}
+
+export function parseBrowserArg(arg: string): ParsedBrowserArg | undefined {
+  const match = arg.trim().match(/^(-{1,2})([^\s=-][^\s=]*)(?:=([\s\S]*))?$/);
+  if (!match) {
+    return undefined;
+  }
+
+  const name = match[2].toLowerCase();
+  return { flag: `${match[1]}${name}`, name, value: match[3] };
+}
+
 export function normalizedArgFlag(arg: string): string | undefined {
-  const match = arg.trim().match(/^(-{1,2}[^\s=]+)/);
-  return match?.[1]?.toLowerCase();
+  return parseBrowserArg(arg)?.flag;
+}
+
+function isAllowedBrowserArgValue(value: string): boolean {
+  return /^[\w.-]{1,64}$/.test(value);
+}
+
+function describeArg(arg: string): string {
+  const trimmed = arg.trim();
+  return trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed;
 }
 
 export function findDeniedBrowserArg(args?: string[]): string | undefined {
-  for (let index = 0; index < (args?.length ?? 0); index += 1) {
-    const flag = normalizedArgFlag(args?.[index] ?? "");
-    if (!flag) {
-      continue;
+  // Set when the previous flag takes its value as the next argument.
+  let valueExpected = false;
+
+  for (const arg of args ?? []) {
+    const parsed = parseBrowserArg(arg);
+    if (!parsed) {
+      // Firefox opens leftover non-flag arguments as startup URLs, which load
+      // outside the per-context request guard.
+      if (valueExpected && isAllowedBrowserArgValue(arg.trim())) {
+        valueExpected = false;
+        continue;
+      }
+      return `positional argument "${describeArg(arg)}"`;
     }
 
-    if (DENIED_BROWSER_ARG_FLAGS.has(flag)) {
-      return flag;
+    valueExpected = false;
+    if (DENIED_BROWSER_ARG_FLAGS.has(parsed.name)) {
+      return parsed.flag;
+    }
+
+    if (parsed.value !== undefined) {
+      // Firefox splits "-flag=value" into two arguments, so a value on a flag
+      // it does not consume is opened as a URL too.
+      if (!VALUED_BROWSER_ARG_FLAGS.has(parsed.name) || !isAllowedBrowserArgValue(parsed.value)) {
+        return `${parsed.flag} with a value`;
+      }
+    } else if (VALUED_BROWSER_ARG_FLAGS.has(parsed.name)) {
+      valueExpected = true;
     }
   }
 

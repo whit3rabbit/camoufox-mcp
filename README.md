@@ -224,11 +224,11 @@ Use Camoufox to browse https://developer.mozilla.org with images blocked and Web
 
 The default pins are `camoufox-js` 0.12.0, `playwright-core` 1.59.0, and Camoufox 152.0.4-beta.28. Keep `playwright-core` as a direct pinned dependency: npm `overrides` alone do not pin it for `npx` or global installs. Run `npm run doctor` to verify the selected build and a real browser launch.
 
-Camoufox 156.0.1-beta.33 is available through opt-in compatibility mode. It restores page and iframe WebSocket interception by disabling the newer browser's world isolation, reducing stealth compared with its upstream defaults. The beta.28 default predates that isolation change. Worker WebSockets evade interception in both modes, so untrusted browsing needs network egress controls. See [browser compatibility setup and evidence](docs/browser-compatibility.md) before enabling it.
+Camoufox 158.0.1-beta.41 is available through opt-in compatibility mode. It restores page and iframe WebSocket interception by disabling the newer browser's world isolation, reducing stealth compared with its upstream defaults. The beta.28 default predates that isolation change. Worker WebSockets evade interception in both modes, so untrusted browsing needs network egress controls. See [browser compatibility setup and evidence](docs/browser-compatibility.md) before enabling it.
 
 | Environment variable | Default | Effect |
 | --- | --- | --- |
-| `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` | Unset | Set to `1` during installation and startup to select beta.33 with reduced stealth. |
+| `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` | Unset | Set to `1` during installation and startup to select beta.41 with reduced stealth. |
 | `CAMOUFOX_INSTALL_DIR` | OS cache, separate `camoufox-compatibility` cache when opted in | Override the browser directory; use the same value during installation and startup. |
 
 Use `npm run fetch:camoufox` for tagged downloads with SHA-256 checks. The shared [browser manifest](browser-builds.json) pins both modes. Avoid `camoufox-js fetch`, whose release selection can install a build that bypasses WebSocket interception.

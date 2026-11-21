@@ -38,7 +38,7 @@ export function buildBrowserCompatibilityStatus() {
     expectedVersion: EXPECTED_BROWSER_VERSION,
     installedVersion: readInstalledBrowserVersion(),
     launcher: EXPECTED_BROWSER_BUILD.launcher,
-    // beta.28 predates isolated page worlds; beta.33 explicitly disables them here.
+    // beta.28 predates isolated page worlds; the compatibility build explicitly disables them here.
     worldIsolationEnabled: false,
     warning: BROWSER_COMPATIBILITY
       ? "World isolation is disabled to restore WebSocket interception. Websites can detect automation bindings."

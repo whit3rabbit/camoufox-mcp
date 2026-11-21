@@ -37,7 +37,13 @@ export async function extractSnapshotElements(
 
         const path: string[] = [];
         let current: Element | null = element;
-        while (current && current !== document.documentElement && path.length < 8) {
+        // Walk to the nearest ancestor with an id, or to the root. A path cut off
+        // at a fixed depth is relative and matches the first similar subtree.
+        while (current && current !== document.documentElement) {
+          if (current !== element && current.id) {
+            path.unshift(`#${cssIdent(current.id)}`);
+            break;
+          }
           let part = current.tagName.toLowerCase();
           if (current.classList.length > 0) {
             part += `.${Array.from(current.classList).slice(0, 2).map(cssIdent).join(".")}`;
@@ -185,12 +191,25 @@ export async function extractSnapshotElements(
 
 const SNAPSHOT_ATTEMPTS = 3;
 const SNAPSHOT_TIMEOUT_MS = 10000;
+const ARIA_SNAPSHOT_TIMEOUT_MS = 3000;
+// Kept back from the snapshot budget while waiting on a pending navigation, so
+// the document it commits can still be read in full.
+const PENDING_NAVIGATION_RESERVE_MS = 2500;
 
 class SnapshotNavigationChanged extends Error {}
 
 function isNavigationReadError(error: unknown): boolean {
   return error instanceof SnapshotNavigationChanged
     || /execution context was destroyed|cannot find context with (?:specified )?id/i.test(describeError(error));
+}
+
+// Playwright holds locator reads while a main-frame navigation has started but
+// not committed, and names that wait in the call log of the resulting timeout.
+// The match depends on the pinned playwright-core wording; if it stops
+// matching, the read falls back to reporting the timeout as a diagnostic.
+function isPendingNavigationTimeout(error: unknown): boolean {
+  // The target URL is included once its request is known: `waiting for" <url>" navigation`.
+  return /waiting for(?:\s*"[^"\n]*")? navigation to finish/i.test(describeError(error));
 }
 
 async function readSnapshotPayload(
@@ -219,17 +238,29 @@ async function readSnapshotPayload(
     return payload;
   }
 
-  try {
-    const target = selector ? page.locator(selector).first() : page.locator("body").first();
-    const timeout = Math.min(3000, remainingMs());
-    const aria = await target.ariaSnapshot({ timeout });
-    const truncated = truncateString(aria, maxChars);
-    payload.ariaSnapshot = truncated.value;
-    payload.ariaSnapshotTruncated = truncated.truncated;
-  } catch (snapshotError) {
-    remainingMs();
-    if (isNavigationReadError(snapshotError)) throw snapshotError;
-    payload.ariaSnapshotError = describeError(snapshotError);
+  const target = selector ? page.locator(selector).first() : page.locator("body").first();
+  let timeout = Math.min(ARIA_SNAPSHOT_TIMEOUT_MS, remainingMs());
+  for (;;) {
+    try {
+      const aria = await target.ariaSnapshot({ timeout });
+      const truncated = truncateString(aria, maxChars);
+      payload.ariaSnapshot = truncated.value;
+      payload.ariaSnapshotTruncated = truncated.truncated;
+      break;
+    } catch (snapshotError) {
+      const waitBudget = remainingMs() - PENDING_NAVIGATION_RESERVE_MS;
+      if (isNavigationReadError(snapshotError)) throw snapshotError;
+      // An action such as a link click can return before its navigation
+      // commits, and the browser can hold that request for seconds. Keep
+      // waiting for the commit rather than describe the outgoing document.
+      // The caller then re-reads the new document; the action never reruns.
+      if (isPendingNavigationTimeout(snapshotError) && waitBudget > 0) {
+        timeout = Math.min(ARIA_SNAPSHOT_TIMEOUT_MS, waitBudget);
+        continue;
+      }
+      payload.ariaSnapshotError = describeError(snapshotError);
+      break;
+    }
   }
 
   return payload;

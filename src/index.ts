@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Must stay first: it reserves stdout for the protocol before any dependency loads.
+import { protocolStdout } from "./stdio-guard.js";
 import "./sqlite-compat.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -6,7 +8,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { CallToolResult, ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import chalk from "chalk";
-import { ALLOWED_PRIVATE_HOSTS, ALLOW_EVALUATE, ALLOW_UNSAFE_OPTIONS, CAPTCHA_AUTONOMOUS, DEFAULT_STEALTH_PROFILE, DEFAULT_WAIT_STRATEGY, SERVER_VERSION, assertNetworkSandboxPolicy } from "./config.js";
+import { ALLOWED_PRIVATE_HOSTS, ALLOW_EVALUATE, ALLOW_UNSAFE_OPTIONS, CAPTCHA_AUTONOMOUS, DEFAULT_STEALTH_PROFILE, DEFAULT_WAIT_STRATEGY, SERVER_VERSION, SHUTDOWN_DEADLINE_MS, assertNetworkSandboxPolicy } from "./config.js";
+import { runWithRequestSignal } from "./request-context.js";
 import { anyOutputSchema, browseOutputSchema, browseToolShape, consoleOutputSchema, consoleToolShape, findOutputSchema, findToolShape, formsOutputSchema, formsToolShape, linksOutputSchema, linksToolShape, networkSummaryOutputSchema, networkSummaryToolShape, outlineOutputSchema, outlineToolShape, screenshotOutputSchema, screenshotToolShape, sequenceOutputSchema, sequenceToolShape, sessionActionOutputSchema, sessionActionToolShape, sessionCloseOutputSchema, sessionCloseToolShape, sessionNavigateOutputSchema, sessionNavigateToolShape, sessionResumeOutputSchema, sessionResumeToolShape, sessionSnapshotOutputSchema, sessionSnapshotToolShape, sessionStartOutputSchema, sessionStartToolShape, snapshotOutputSchema, snapshotToolShape, statusOutputSchema, type BrowseToolInput, type ConsoleToolInput, type FindToolInput, type FormsToolInput, type LinksToolInput, type NetworkSummaryToolInput, type OutlineToolInput, type ScreenshotToolInput, type SequenceToolInput, type SessionActionToolInput, type SessionCloseToolInput, type SessionNavigateToolInput, type SessionResumeToolInput, type SessionSnapshotToolInput, type SessionStartToolInput, type SnapshotToolInput } from "./schemas.js";
 import { handleBrowse, handleConsole, handleFind, handleForms, handleLinks, handleNetworkSummary, handleOutline, handleScreenshot, handleSequence, handleSnapshot, handleStatus } from "./tool-handlers.js";
 import { closeActiveSessions, handleSessionAction, handleSessionClose, handleSessionNavigate, handleSessionResume, handleSessionSnapshot, handleSessionStart } from "./sessions.js";
@@ -45,7 +48,9 @@ const nonReadOnlyOpenWorld: ToolAnnotations = { readOnlyHint: false, destructive
 // outputSchema, so there's no need to redeclare its signature through `unknown`.
 // The wrapper keeps its own InputArgs generic; the callback is narrowed to the
 // SDK's ToolCallback<InputArgs> at the boundary (the SDK has already validated
-// the args against inputSchema before invoking it).
+// the args against inputSchema before invoking it). The SDK aborts extra.signal
+// when the client cancels the request or disconnects; publishing it lets the
+// browser runtime stop work nobody is waiting for.
 function registerJsonTool<InputArgs extends z.ZodRawShape>(
   name: string,
   description: string,
@@ -54,8 +59,8 @@ function registerJsonTool<InputArgs extends z.ZodRawShape>(
   handler: (input: z.infer<z.ZodObject<InputArgs>>) => Promise<CallToolResult>,
   outputSchema: z.ZodTypeAny = anyOutputSchema,
 ): void {
-  const callback: ToolCallback<InputArgs> = ((input: unknown) =>
-    handler(input as z.infer<z.ZodObject<InputArgs>>)) as ToolCallback<InputArgs>;
+  const callback: ToolCallback<InputArgs> = ((input: unknown, extra?: { signal?: AbortSignal }) =>
+    runWithRequestSignal(extra?.signal, () => handler(input as z.infer<z.ZodObject<InputArgs>>))) as ToolCallback<InputArgs>;
   server.registerTool(
     name,
     { description, inputSchema, outputSchema, annotations },
@@ -94,7 +99,7 @@ registerJsonTool("browse_session_close", "Close an existing browser session.", s
 async function runServer() {
   try {
     assertNetworkSandboxPolicy();
-    const transport = new StdioServerTransport();
+    const transport = new StdioServerTransport(process.stdin, protocolStdout);
     await server.connect(transport);
     console.error(chalk.yellow("Camoufox MCP Server is running on stdio..."));
   } catch (error) {
@@ -114,6 +119,11 @@ async function shutdown(signal: string, exitCode = 0): Promise<void> {
   shuttingDown = true;
   setBrowserShuttingDown(true);
   console.error(chalk.yellow("\n[Camoufox] Shutting down server after " + signal + "..."));
+  // Cleanup closes browsers over a pipe that may itself be wedged. Exit anyway.
+  setTimeout(() => {
+    console.error(chalk.red("[Camoufox] Shutdown cleanup exceeded its deadline; exiting."));
+    process.exit(exitCode || 1);
+  }, SHUTDOWN_DEADLINE_MS).unref();
   rejectPendingBrowses("Server is shutting down.");
   try {
     await closeActiveSessions();
@@ -125,6 +135,13 @@ async function shutdown(signal: string, exitCode = 0): Promise<void> {
   }
 }
 
+// A client that goes away closes the pipes without sending a signal. An idle
+// server then exits on its own, but an open session or in-flight browse keeps
+// Node and the browser alive, so treat the closed pipe as the shutdown request.
+process.stdin.on("end", () => { void shutdown("stdin end"); });
+process.stdin.on("close", () => { void shutdown("stdin close"); });
+protocolStdout.on("error", () => { void shutdown("stdout error"); });
+process.stdout.on("error", () => { void shutdown("stdout error"); });
 process.on("SIGINT", () => { void shutdown("SIGINT"); });
 process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
 process.on("uncaughtException", (error) => {

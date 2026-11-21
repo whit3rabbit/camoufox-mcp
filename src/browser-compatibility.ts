@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
-import type { NewBrowserOptions } from "@camoufox/camoufox";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import type { NewBrowserOptions } from "camoufox";
 import type { Browser } from "playwright-core";
 import type { CamoufoxOptions, ProxyConfig } from "./types.js";
 
@@ -11,7 +12,7 @@ export function assertCompatibilityLauncherAvailable(
   resolve: (specifier: string) => string = createRequire(import.meta.url).resolve,
 ): void {
   try {
-    resolve("@camoufox/camoufox");
+    resolve("camoufox");
   } catch (error) {
     // Resolve only the optional package entry before importing it. A missing
     // transitive dependency or native-library failure must keep its own error.
@@ -20,6 +21,21 @@ export function assertCompatibilityLauncherAvailable(
     }
     throw error;
   }
+}
+
+interface FingerprintModelModule {
+  isModelInstalled: (dir?: string) => boolean;
+}
+
+// The launcher keeps its fingerprint model in the fpgen-js package, whose
+// exports map publishes ensureModel but not the read-only installed check.
+// Load that module by path, resolved from the launcher so both use the one
+// instance: the launcher points it at its own model directory on import.
+export async function importFingerprintModel(
+  resolveFromLauncher: (specifier: string) => string = createRequire(createRequire(import.meta.url).resolve("camoufox")).resolve,
+): Promise<FingerprintModelModule> {
+  const modelPath = join(dirname(resolveFromLauncher("fpgen-js")), "model.js");
+  return await import(pathToFileURL(modelPath).href) as FingerprintModelModule;
 }
 
 function normalizeProxy(proxy?: ProxyConfig): NewBrowserOptions["proxy"] {
@@ -106,24 +122,27 @@ export async function launchCompatibilityBrowser(
   if (major < 22 || (major === 22 && minor < 15)) throw new Error("Browser compatibility requires Node >=22.15.");
   const mappedOptions = buildCompatibilityOptions(options, executablePath, ffVersion);
   assertCompatibilityLauncherAvailable();
-  const [{ Camoufox }, { isModelInstalled }, { getAddonPath }] = await Promise.all([
-    import("@camoufox/camoufox"),
-    import("@camoufox/camoufox/dist/fpgen/model.js"),
-    import("@camoufox/camoufox/dist/addons.js"),
+  // Import the launcher first: loading it configures the model directory.
+  const { Camoufox } = await import("camoufox");
+  const [{ isModelInstalled }, { getAddonPath }] = await Promise.all([
+    importFingerprintModel(),
+    import("camoufox/dist/addons.js"),
   ]);
 
-  // Upstream downloads report progress on stdout, which would corrupt MCP stdio.
-  // Fetch all launch assets explicitly before allowing a compatibility launch.
+  // The launcher downloads a missing model during launch. Fetch all launch
+  // assets explicitly beforehand so a launch never depends on a download.
   if (!isModelInstalled()) {
     throw new Error(`Compatibility fingerprint model is missing. Run: ${FETCH_COMMAND}`);
   }
-  if (!mappedOptions.exclude_addons?.includes("UBO") && !existsSync(join(getAddonPath("UBO"), "manifest.json"))) {
-    throw new Error(`Compatibility uBlock Origin addon is missing. Run: ${FETCH_COMMAND}`);
+  // uBlock Origin ships inside the browser archive. The launcher only warns
+  // and launches without it when it is absent; this server requires it.
+  if (!mappedOptions.exclude_addons?.includes("UBO") && !existsSync(join(getAddonPath("UBO", executablePath), "manifest.json"))) {
+    throw new Error(`Compatibility uBlock Origin addon is missing from the browser install. Run: ${FETCH_COMMAND}`);
   }
   if (options.geoip) {
     const [{ getMmdbPath, loadGeoipConfig, needsUpdate }, { publicIP }] = await Promise.all([
-      import("@camoufox/camoufox/dist/geolocation.js"),
-      import("@camoufox/camoufox/dist/ip.js"),
+      import("camoufox/dist/geolocation.js"),
+      import("camoufox/dist/ip.js"),
     ]);
     const geoipConfig = loadGeoipConfig();
     if (await needsUpdate(geoipConfig)) {

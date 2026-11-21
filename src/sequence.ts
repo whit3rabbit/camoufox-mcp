@@ -6,16 +6,24 @@ import type { ClickMode, RequestGuard, SequenceActionResult } from "./types.js";
 import { describeError, serializeBounded, withTimeout } from "./utils.js";
 import { settleAndAssertSafe } from "./browser-runtime.js";
 
+const EVALUATE_DISABLED_MESSAGE = "Evaluate action is disabled by server policy. Set CAMOUFOX_MCP_ALLOW_EVALUATE=1 to enable it.";
+
 export function actionTimeout(action: { timeout?: number }): number {
   return action.timeout ?? DEFAULT_ACTION_TIMEOUT_MS;
 }
 
-export function sequenceTimeoutBudget(actions: SequenceAction[]): number {
-  return actions.reduce((total, action) => total + actionTimeout(action), 0);
+// Checked before a browser is launched so a disallowed step does not run the
+// steps in front of it first.
+export function findDisallowedAction(actions: SequenceAction[]): string | undefined {
+  if (!ALLOW_EVALUATE && actions.some((action) => action.type === "evaluate")) {
+    return EVALUATE_DISABLED_MESSAGE;
+  }
+
+  return undefined;
 }
 
-export function isLocalOperationTimeout(error: unknown): boolean {
-  return describeError(error).endsWith(" timed out.");
+export function sequenceTimeoutBudget(actions: SequenceAction[]): number {
+  return actions.reduce((total, action) => total + actionTimeout(action), 0);
 }
 
 export function resolveLocator(page: Page, selector: string, frame?: string): Locator {
@@ -51,27 +59,42 @@ export async function domClick(locator: Locator, timeout: number): Promise<void>
 }
 
 export async function activateElement(page: Page, selector: string, timeout: number, frame?: string, clickMode: ClickMode = "dom"): Promise<void> {
+  // One deadline for the whole click. Giving each stage a fresh timeout let a
+  // single action run for several multiples of the caller's limit.
+  const deadline = Date.now() + timeout;
+  const remaining = (): number => Math.max(1, deadline - Date.now());
+
   const locator = resolveLocator(page, selector, frame);
-  await locator.waitFor({ state: "visible", timeout });
-  if (!await locator.isEnabled({ timeout })) {
+  await locator.waitFor({ state: "visible", timeout: remaining() });
+  if (!await locator.isEnabled({ timeout: remaining() })) {
     throw new Error(`Click selector is disabled: ${selector}`);
   }
 
   if (clickMode === "pointer") {
-    await pointerClick(locator, timeout);
+    await pointerClick(locator, remaining());
     return;
   }
 
   if (clickMode === "auto") {
+    // A trial click runs Playwright's actionability and hit-target checks but
+    // dispatches nothing. Falling back after it fails cannot double-click. A
+    // real pointer click that fails may already have delivered events, so it
+    // is never followed by a DOM click.
+    let pointerActionable = false;
     try {
-      await pointerClick(locator, timeout);
-      return;
+      await locator.click({ trial: true, timeout: Math.max(1, Math.floor(remaining() / 2)) });
+      pointerActionable = true;
     } catch (error) {
-      console.error(chalk.yellow(`[Camoufox] Pointer click failed, falling back to DOM click: ${describeError(error)}`));
+      console.error(chalk.yellow(`[Camoufox] Pointer click is not actionable, using DOM click: ${describeError(error)}`));
+    }
+
+    if (pointerActionable) {
+      await pointerClick(locator, remaining());
+      return;
     }
   }
 
-  await domClick(locator, timeout);
+  await domClick(locator, remaining());
 }
 
 export async function runSequenceAction(
@@ -159,13 +182,13 @@ export async function runSequenceAction(
           "Scroll action",
         );
       } else {
-        await page.mouse.wheel(action.deltaX, action.deltaY);
+        await withTimeout(page.mouse.wheel(action.deltaX, action.deltaY), timeout, "Scroll action");
       }
       return { index, type: action.type, selector: action.selector, status: "ok", durationMs: Date.now() - started };
 
     case "evaluate": {
       if (!ALLOW_EVALUATE) {
-        throw new Error("Evaluate action is disabled by server policy. Set CAMOUFOX_MCP_ALLOW_EVALUATE=1 to enable it.");
+        throw new Error(EVALUATE_DISABLED_MESSAGE);
       }
 
       const result = await withTimeout(
@@ -205,7 +228,7 @@ export async function runSequenceActionsWithBudget(
     })(), SEQUENCE_TIMEOUT_MS, "Browse sequence");
   } catch (actionError) {
     // Network rejection can fail an action before its post-action guard check.
-    requestGuard.assertAllowed();
+    await requestGuard.assertSettled();
     throw actionError;
   }
 

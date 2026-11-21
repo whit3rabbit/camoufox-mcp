@@ -11,5 +11,5 @@
       "forceConsistentCasingInFileNames": true,
       "isolatedModules": true
     },
-    "include": ["src/**/*", "__tests__/**/*"]
+    "include": ["src/**/*"]
   }

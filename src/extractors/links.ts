@@ -31,7 +31,13 @@ export async function extractLinks(
 
         const path: string[] = [];
         let current: Element | null = element;
-        while (current && current !== document.documentElement && path.length < 8) {
+        // Walk to the nearest ancestor with an id, or to the root. A path cut off
+        // at a fixed depth is relative and matches the first similar subtree.
+        while (current && current !== document.documentElement) {
+          if (current !== element && current.id) {
+            path.unshift(`#${cssIdent(current.id)}`);
+            break;
+          }
           let part = current.tagName.toLowerCase();
           if (current.classList.length > 0) {
             part += `.${Array.from(current.classList).slice(0, 2).map(cssIdent).join(".")}`;

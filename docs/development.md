@@ -53,7 +53,7 @@ If Camoufox has not been downloaded yet, run:
 npm run fetch:camoufox
 ```
 
-To test beta.33 compatibility, use `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` for the pinned fetch, doctor, MCP host environment, and test command. The mode uses a separate cache unless `CAMOUFOX_INSTALL_DIR` is set. See [browser compatibility](browser-compatibility.md) for setup, verified versions, and network limits.
+To test beta.41 compatibility, use `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` for the pinned fetch, doctor, MCP host environment, and test command. The mode uses a separate cache unless `CAMOUFOX_INSTALL_DIR` is set. See [browser compatibility](browser-compatibility.md) for setup, verified versions, and network limits.
 
 ### Running Tests
 
@@ -69,9 +69,13 @@ The integration harness starts a local HTTP fixture server and sets `NODE_ENV=te
 
 Local-development regression cases use a separate production-mode server with the test bypass disabled. They check the default denial, explicit hostname allowance, screenshots, sessions, HTTP resources, WebSockets, and continued rejection of unlisted private addresses. Deterministic navigation tests simulate committed URL drift and verify a single corrective load, response metadata, timeout limits, and redirect preservation.
 
+The Python client takes `--tests name1,name2` to run selected cases (the handshake always runs first), `--keep-going` to continue past a failure and list every failing case, and `--no-geoip` to send `geoip: false` on launches that do not set it. Use `--no-geoip` only where the GeoIP database cannot be fetched; GeoIP-enabled launches are then untested. Any line on the server's stdout that is not a JSON-RPC object fails the run.
+
+Browser-side timing is not fixed. In default mode uBlock Origin holds requests issued a few seconds after launch until its filter lists have loaded (see [requests held while uBlock Origin starts](browser-compatibility.md#requests-held-while-ublock-origin-starts)). Cases that depend on a request issued after load wait for the outcome up to a deadline, with `_call_tool_until` or a generous action timeout, instead of sleeping for a fixed time. `node tests/probe_startup_request_hold.mjs` measures the hold on the current machine.
+
 Run `npm run test:all` before a release. It covers lint, dependency audit, deterministic checks, a pinned browser fetch, and the local browser suite. GitHub Actions results are separate evidence; a local pass does not confirm CI.
 
-The workflow runs on Ubuntu 24.04 with Node 22 and 24, each testing the default and compatibility browser modes. Every job runs `node tests/check_release_versions.mjs`, installs with `npm ci --include=optional`, and runs lint, audit, unit tests, pinned fetch, and the browser suite in separate steps. Only the fetch step receives the read-only job token for upstream GitHub API requests. Pull requests also build the `linux/amd64` Docker image and run the Python browser suite against it. Check the matching [GitHub Actions run](https://github.com/whit3rabbit/camoufox-mcp/actions/workflows/ci.yml) for completed Linux and Docker results.
+The workflow runs on Ubuntu 24.04 with Node 22 and 24, each testing the default and compatibility browser modes. Every job runs `node tests/check_release_versions.mjs`, installs with `npm ci --include=optional`, and runs lint, audit, unit tests, pinned fetch, and the browser suite in separate steps. In those jobs the token is read-only and only the fetch step receives it, for upstream GitHub API requests. Pull requests also build the `linux/amd64` Docker image and run the Python browser suite against it in a separate `docker-test` job with a read-only token. The job that publishes images can write packages and runs only for `main`, tags, and manual dispatch, so pull-request code is never built with a token that can publish. Workflow actions are pinned to commit SHAs; `.github/dependabot.yml` keeps the pins current. Check the matching [GitHub Actions run](https://github.com/whit3rabbit/camoufox-mcp/actions/workflows/ci.yml) for completed Linux and Docker results.
 
 Keep the seven release version fields and root lockfile records aligned. Tagged releases publish npm, Docker, the ClawHub bundle, and a GitHub Release automatically. Local ClawHub validation does not confirm an OpenClaw installation.
 
@@ -88,4 +92,4 @@ For authenticated asset API requests, the build accepts an optional `github_toke
 docker buildx build --platform linux/amd64 --secret id=github_token,env=GITHUB_TOKEN -t camoufox-mcp .
 ```
 
-CI supplies its Docker job token through that secret. The Dockerfile mounts it only during browser fetch; it is not stored in image layers or passed to the runtime. Local builds can omit the secret. This uses Docker's [BuildKit secret mount](https://docs.docker.com/build/building/secrets/), with the environment target supported by Dockerfile syntax 1.10 or higher.
+CI supplies its Docker job token through that secret: a read-only token on pull requests, and the publishing job's token on `main` and tag builds. The Dockerfile mounts it only during browser fetch; it is not stored in image layers or passed to the runtime. Local builds can omit the secret. This uses Docker's [BuildKit secret mount](https://docs.docker.com/build/building/secrets/), with the environment target supported by Dockerfile syntax 1.10 or higher.

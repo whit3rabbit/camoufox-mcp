@@ -51,7 +51,8 @@ class SequenceCases:
         response = self._run_sequence({
             "url": self._fixture_url(html),
             "actions": [
-                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 3000}
+                # See the fallback case below for why the timeout is generous.
+                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 6000}
             ],
             "maxChars": 2000
         }, timeout=90)
@@ -80,7 +81,11 @@ class SequenceCases:
         response = self._run_sequence({
             "url": self._fixture_url(html),
             "actions": [
-                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 1000}
+                # One timeout covers the pointer trial and the DOM click. The
+                # trial may use half of it, and under Xvfb it never passes. The
+                # DOM click then took up to about 0.7 s in measurement, more
+                # than a 1 s timeout leaves it.
+                {"type": "click", "selector": "#target", "clickMode": "auto", "timeout": 6000}
             ],
             "maxChars": 2000
         }, timeout=90)
@@ -186,17 +191,22 @@ class SequenceCases:
 
     def test_call_tool_sequence_failure_reports_private_host_policy(self):
         print("--- Running Test: Sequence Failure Reports Private Host Policy ---")
+        # The request is issued after the first action's guard check, and the
+        # browser may hold it for seconds. The second action therefore waits on
+        # the request itself: the disabled control appears only once the fetch
+        # has settled, and clicking a disabled control fails at once.
         html = """<!doctype html>
 <html>
 <body>
-  <button id="arm" onclick="setTimeout(() => fetch('http://blocked.localhost:80/private?token=sequence-policy-secret#fragment').catch(() => {}), 1500)">Arm request</button>
+  <button id="arm" onclick="setTimeout(() => fetch('http://blocked.localhost:80/private?token=sequence-policy-secret#fragment').catch(() => {}).finally(() => { document.getElementById('settled').hidden = false; }), 1500)">Arm request</button>
+  <button id="settled" disabled hidden>Request settled</button>
 </body>
 </html>"""
         response = self._call_tool("browse_sequence", {
             "url": self._fixture_url(html),
             "actions": [
                 {"type": "click", "selector": "#arm"},
-                {"type": "waitFor", "selector": "#missing", "timeout": 3000},
+                {"type": "click", "selector": "#settled", "timeout": 30000},
             ],
             "geoip": False,
         }, timeout=90)

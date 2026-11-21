@@ -10,11 +10,27 @@ export function describeError(error: unknown): string {
   return message;
 }
 
+// Raised only by this server's own deadlines. Callers that react to a local
+// timeout must test for this class: page code can throw any message text.
+export class OperationTimeoutError extends Error {
+  readonly label: string;
+
+  constructor(label: string) {
+    super(`${label} timed out.`);
+    this.name = "OperationTimeoutError";
+    this.label = label;
+  }
+}
+
+export function isOperationTimeout(error: unknown): error is OperationTimeoutError {
+  return error instanceof OperationTimeoutError;
+}
+
 export async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(new Error(`${label} timed out.`));
+      reject(new OperationTimeoutError(label));
     }, ms);
   });
 

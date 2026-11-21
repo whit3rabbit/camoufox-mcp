@@ -7,12 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Redirect hops are validated. Playwright runs route handlers only for the first request of a redirect chain, so a redirect to a hostname that resolves to loopback or private space was never checked. Each hop is now validated, including its DNS result, and the call fails without returning page state. The hop itself has already been sent by then; network egress controls remain the way to prevent that request.
+- Screenshots, page titles, and CAPTCHA detection (including the `attempt` screenshot) are read through the same guard as text: the request guard and the committed page location are checked before and after each read. They previously checked only the request guard, or nothing.
+- Launcher output can no longer corrupt the MCP stream. `process.stdout` is redirected to stderr and the transport writes through a private stream. With `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` set in the server's environment, `camoufox-js` printed a notice to stdout on every launch and skipped registering the installed uBlock Origin addon; the server now removes that variable from its own environment.
+- With `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`, the always-denied list now holds for every spelling. Browser flags are compared without leading dashes and case, so `-remote-debugging-port` is denied like `--remote-debugging-port`. Added `start-debugger-server`, `url`, `new-window`, `new-tab`, `private-window`, `marionette`, `remote-allow-hosts`, `P`, `profilemanager`, `createprofile`, `jsdebugger`, `wait-for-jsdebugger`, `jsconsole`, `devtools`, `juggler`, and `juggler-pipe`. Positional arguments and values on flags other than `width` and `height` are rejected, because Firefox opens leftover arguments as startup URLs outside the request guard. Denied preference prefixes now include `network.dns.`, `network.trr.`, `media.peerconnection.`, `remote.`, and `marionette.`, plus `security.csp.enable` and `browser.startup.homepage`.
+- IPv4-compatible (`::a.b.c.d`), IPv4-translated (`::ffff:0:a.b.c.d`), and deprecated site-local (`fec0::/10`) IPv6 addresses are rejected. DNS lookups made for policy checks time out after 5 seconds and fail closed.
+- CI: pull requests build and test the Docker image in a separate job with a read-only token. The job that can write packages no longer builds pull-request code. Workflow actions are pinned to commit SHAs, the ClawHub CLI version is pinned, and Dependabot keeps both current.
+- Dependencies: `@modelcontextprotocol/sdk` ^1.32.2 and `zod` ^4.6.7 clear their published advisories for installs that do not use this lockfile. `npm audit` reports 0 vulnerabilities, down from 30. The unused `jest`, `ts-jest`, and `@types/jest` development dependencies are removed. `glob` is overridden to ^14.0.2 in this repository; `camoufox-js` declares it without importing it.
+
+### Changed
+
+- `block_webrtc: false` now requires `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1`. WebRTC reaches ICE and TURN servers chosen by the page over transports the request guard does not see.
+- `fullPage` screenshots capture pages up to `CAMOUFOX_MCP_MAX_FULL_PAGE_SCREENSHOT_HEIGHT` (default 10000 px). They were held to the 1080 px viewport limit, which rejected almost every page. A taller or wider page is clipped from the top left and the metadata reports `clipped`, `pageWidth`, and `pageHeight`.
+- A blocked request no longer disables a session permanently. A request aborted before it was sent fails the call that observes it and is then cleared. A redirect hop that was already sent, or an exhausted request budget, keeps failing calls until the next `browse_session_navigate`. One-shot tools still fail on any blocked request.
+- Sessions close on a timeout only when an action was abandoned mid-flight and could still land. A snapshot or other read that times out returns an error and keeps the session. Timeouts are identified by error type, so page code cannot close a session by throwing a matching message.
+- `clickMode: "auto"` runs a pointer trial that dispatches nothing. If the trial fails it uses DOM activation; if the trial passes and the pointer click then fails, the error is returned instead of clicking a second time. One click shares a single `timeout` across its stages instead of restarting it for each.
+- `browse_sequence` rejects an `evaluate` step before launching the browser when evaluate is disabled, so earlier steps no longer run first.
+- One-shot tools honour the `captchaPolicy` implied by `stealthProfile` (`human_assisted` implies `pause`). They read only the explicit argument before.
+- `browse_session_start`'s `timeout` is the session's default navigation timeout. It was accepted and ignored.
+- Default mode checks for the uBlock Origin addon, and for the GeoIP database when `geoip` is on, before launching. The default-mode fetch now fails if the addon download did not install it, instead of reporting success. A missing asset returns an error naming the fetch command instead of starting a download during launch.
+- CAPTCHA detection no longer flags CSRF fields (`token`, `challenge` in a field name) or any page mentioning Cloudflare. It matches challenge response fields and structural challenge markers. Returned frame selectors identify one frame (`iframe >> nth=N` when a provider selector matches several), and element selectors are the ones that were queried.
+- Session diagnostics restart at each `browse_session_navigate`, and console diagnostics keep the most recent entries rather than the first.
+- NAT64 addresses in `64:ff9b::/96` are judged by their embedded IPv4 address, so public IPv4 sites work on IPv6-only networks with DNS64.
+- Integer settings must be plain integers. Values such as `10m` or `1e5` are ignored with a warning instead of being read as `10` and `1`.
+- The Docker image runs under `tini`, so `docker stop` shuts the server down immediately and browser child processes are reaped.
+- Compatibility mode (`CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1`) moves from Camoufox 156.0.1-beta.33 to 158.0.1-beta.41, and from the deprecated `@camoufox/camoufox` 0.5.7-beta.4 launcher to its renamed successor `camoufox` 0.5.9. Rerun the compatibility fetch after upgrading: the runtime rejects the old build. The launcher now keeps its fingerprint model and GeoIP databases in its own cache directory, which `CAMOUFOX_INSTALL_DIR` does not move, and uBlock Origin ships inside the browser archive. World isolation stays disabled in this mode: upstream issue #775 is unfixed in beta.41, where page and iframe WebSockets bypass interception with isolation on. The default browser (152.0.4-beta.28), `camoufox-js` 0.12.0, and `playwright-core` 1.59.0 are unchanged.
+
 ### Added
 
+- MCP request cancellation: a cancelled one-shot call closes its browser and frees the browse slot, a cancelled queued call leaves the queue, and a cancelled session call does not start. A session operation that has started runs to its own bounded end.
+- `CAMOUFOX_MCP_PAGE_READ_TIMEOUT_MS` (default 30000) bounds each page read, so a page that never yields cannot hold the browse slot.
+- The server shuts down when its stdin closes while a session or browse is still open, and shutdown has a hard deadline.
+- Python test client options `--tests`, `--keep-going`, and `--no-geoip`. The client fails a run if the server writes a non-JSON-RPC line to stdout.
 - `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` allows exact development hostnames such as `laravel.test` to resolve to loopback or private addresses. Default restrictions remain enabled, and metadata, link-local, and reserved addresses stay blocked. Status and initialization report the configured hostnames. Fixes #33.
 
 ### Fixed
 
+- Snapshot reads wait for a main-frame navigation that has started but not committed, within their existing 10-second deadline, then describe the new document. A `browse_session_action` click on a link could return the outgoing page with an ARIA timeout when the browser was slow to issue the navigation request. Actions are never repeated. A navigation that does not commit in time still returns the current document with `ariaSnapshotError`.
+- Documented why requests issued a few seconds after launch arrive late in default mode: uBlock Origin holds them until its filter lists have loaded. Four browser-suite cases that relied on fixed sleeps or 3-second waits now wait for the outcome up to a deadline. `tests/probe_startup_request_hold.mjs` measures the hold.
+- Generated selectors from snapshot, links, forms, outline, and find are anchored at the nearest ancestor with an id or at the document root. Paths were cut at depth 8, leaving a relative selector that could act on a different element. Radio and checkbox options, and same-named fields in different forms, get distinct selectors.
+- Element screenshots of a target partly off the left or top edge capture the visible part instead of a shifted region.
+- `browse_find` reports every non-overlapping match with correct offsets for text whose case-folding changes its length, and matches queries containing repeated spaces.
+- Truncation flags: `browse_outline` no longer reports truncation for a repeated landmark, text and HTML extraction no longer report it when the node limit is reached exactly, and `browse_forms` stops listing later forms as empty once the field limit is spent.
+- A hung wheel scroll or session action is bounded by the action timeout.
+- Failed navigations to bracketed IPv6 loopback (`[::1]`) are reported as policy blocks like other loopback targets.
 - Private-host DNS denial errors provide the exact environment setting for eligible development, corporate, and custom names. Session and sequence action failures preserve pending policy errors. Metadata, link-local, AWS local-services, and reserved DNS results do not suggest an allowlist exception.
 - Navigation retries once when the network response used the requested URL but the committed document gained duplicate path separators. One-shot tools and sessions share the check, preserve legitimate redirects, and keep the retry within the navigation timeout. Regression tests simulate the reported drift; the original intermittent engine fault has not been reproduced. Fixes #28.
 

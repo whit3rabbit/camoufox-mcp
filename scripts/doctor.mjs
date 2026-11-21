@@ -159,7 +159,8 @@ function smokeTest() {
       return resolve();
     }
 
-    const p = spawn("node", [distPath], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] });
+    // Run the smoke test on the Node this doctor just checked, not whichever "node" is first on PATH.
+    const p = spawn(process.execPath, [distPath], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     // Parse responses as they arrive so the smoke test resolves as soon as both
     // the status (id 2) and browse (id 3) results are in, instead of always
@@ -225,8 +226,8 @@ checkNode();
 checkCamoufoxPin();
 if (compatibility) {
   try {
-    const installed = installedPackage("@camoufox/camoufox").version;
-    const declared = req("package.json").optionalDependencies?.["@camoufox/camoufox"];
+    const installed = installedPackage(selectedBuild.launcher).version;
+    const declared = req("package.json").optionalDependencies?.[selectedBuild.launcher];
     if (installed === selectedBuild.launcherVersion && declared === installed) ok(`official launcher ${installed} (exact pin)`);
     else fail("official launcher version mismatch", "use Node >=22.15 and run npm install --include=optional");
   } catch { fail("official launcher is not installed", "use Node >=22.15 and run npm install --include=optional"); }

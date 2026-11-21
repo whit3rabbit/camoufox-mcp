@@ -6,6 +6,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+// Pins come from the manifest so a browser or launcher bump is one edit.
+const pinned = JSON.parse(readFileSync(join(root, "browser-builds.json"), "utf8"));
+const defaultFull = `${pinned.default.version}-${pinned.default.release}`;
+const compatibilityFull = `${pinned.compatibility.version}-${pinned.compatibility.release}`;
 const temporaryRoot = mkdtempSync(join(tmpdir(), "camoufox-preflight-test-"));
 const previousInstallDir = process.env.CAMOUFOX_INSTALL_DIR;
 const previousCompatibility = process.env.CAMOUFOX_MCP_BROWSER_COMPATIBILITY;
@@ -13,7 +17,7 @@ delete process.env.CAMOUFOX_MCP_BROWSER_COMPATIBILITY;
 process.env.CAMOUFOX_INSTALL_DIR = join(temporaryRoot, "cache");
 
 try {
-  const { MISSING_BROWSER_MESSAGE, assertBrowserBinaryAvailable, probeBrowserBinary } = await import("../dist/browser-preflight.js");
+  const { MISSING_BROWSER_MESSAGE, assertBrowserBinaryAvailable, assertDefaultLaunchAssets, probeBrowserBinary } = await import("../dist/browser-preflight.js");
   const { OS_NAME } = await import("camoufox-js/dist/pkgman.js");
   const executablePath = OS_NAME === "mac"
     ? join(process.env.CAMOUFOX_INSTALL_DIR, "Camoufox.app", "Contents", "MacOS", "camoufox")
@@ -36,24 +40,52 @@ try {
   assert.equal(existsSync(process.env.CAMOUFOX_INSTALL_DIR), false, "probing must not create the cache");
 
   mkdirSync(dirname(executablePath), { recursive: true });
-  writeFileSync(metadataPath, JSON.stringify({ version: "152.0.4", release: "beta.28" }));
+  writeFileSync(metadataPath, JSON.stringify({ version: pinned.default.version, release: pinned.default.release }));
   assert.throws(probeBrowserBinary, "metadata without an executable is not an installed browser");
   writeFileSync(executablePath, "fixture executable");
   chmodSync(executablePath, 0o755);
   assert.equal(probeBrowserBinary(), executablePath);
   assert.doesNotThrow(() => assertBrowserBinaryAvailable());
-  writeFileSync(metadataPath, JSON.stringify({ version: "156.0.1", release: "beta.33" }));
-  assert.throws(() => assertBrowserBinaryAvailable(), /does not match required 152\.0\.4-beta\.28/,
+  writeFileSync(metadataPath, JSON.stringify({ version: pinned.compatibility.version, release: pinned.compatibility.release }));
+  assert.throws(() => assertBrowserBinaryAvailable(), (error) => error.message.includes(`does not match required ${defaultFull}`),
     "a new isolated build must not silently disable WebSocket interception in default mode");
 
-  for (const metadata of ["{broken JSON", JSON.stringify({ release: "beta.28" }), JSON.stringify({ version: "152.0.4", release: "alpha.1" })]) {
+  for (const metadata of ["{broken JSON", JSON.stringify({ release: pinned.default.release }), JSON.stringify({ version: pinned.default.version, release: "alpha.1" })]) {
     writeFileSync(metadataPath, metadata);
     assert.throws(probeBrowserBinary, "corrupt or unsupported metadata must reject the cache");
   }
-  writeFileSync(metadataPath, JSON.stringify({ version: "152.0.4", release: "beta.28" }));
+  writeFileSync(metadataPath, JSON.stringify({ version: pinned.default.version, release: pinned.default.release }));
   rmSync(executablePath);
   mkdirSync(executablePath);
   assert.throws(probeBrowserBinary, "a directory at the executable path must reject the cache");
+
+  // Default-mode launch assets: camoufox-js would otherwise download a missing
+  // addon or GeoIP database in the middle of a launch.
+  {
+    const assetDir = join(temporaryRoot, "launch-assets");
+    const resourceDir = OS_NAME === "mac" ? join(assetDir, "Camoufox.app", "Contents", "Resources") : assetDir;
+    mkdirSync(resourceDir, { recursive: true });
+    assert.throws(() => assertDefaultLaunchAssets({ geoip: false }, assetDir), (error) => {
+      assert.match(error.message, /uBlock Origin addon is not installed/);
+      assert.match(error.message, /npm run fetch:camoufox/, "the error names the fix");
+      return true;
+    });
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({ geoip: false, excludeAddons: ["UBO"] }, assetDir), "an excluded addon is not required");
+
+    mkdirSync(join(resourceDir, "addons", "UBO"), { recursive: true });
+    assert.throws(() => assertDefaultLaunchAssets({ geoip: false }, assetDir), /uBlock Origin/, "an empty addon directory is not an installed addon");
+    writeFileSync(join(resourceDir, "addons", "UBO", "manifest.json"), "{}");
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({ geoip: false }, assetDir));
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({}, assetDir));
+
+    assert.throws(() => assertDefaultLaunchAssets({ geoip: true }, assetDir), (error) => {
+      assert.match(error.message, /GeoIP database is not installed/);
+      assert.match(error.message, /geoip: false/, "the error offers the option that avoids the database");
+      return true;
+    });
+    writeFileSync(join(assetDir, "GeoLite2-City.mmdb"), "fixture");
+    assert.doesNotThrow(() => assertDefaultLaunchAssets({ geoip: true }, assetDir));
+  }
 
   // A fresh process catches the upstream fire-and-forget downloader hidden by launchPath().
   const missingCache = join(temporaryRoot, "fresh-process-missing-cache");
@@ -99,7 +131,7 @@ try {
   const reported = JSON.parse(compatibilityStatus.stdout);
   assert.equal(reported.dir, missingCache);
   assert.equal(reported.status.mode, "compatibility");
-  assert.equal(reported.status.expectedVersion, "156.0.1-beta.33");
+  assert.equal(reported.status.expectedVersion, compatibilityFull);
   assert.equal(reported.status.worldIsolationEnabled, false);
   assert.match(reported.status.warning, /detect automation/);
   assert.equal(existsSync(missingCache), false);
@@ -155,15 +187,15 @@ try {
     symlinkSync(join(installedRoot, path), join(binDir, name), "file");
   }
   assert.equal(installedManifest.engines.node, ">=22.0.0", "default mode must retain its declared Node support");
-  assert.equal(installedManifest.dependencies["@camoufox/camoufox"], undefined, "the newer Node requirement must be optional for default installs");
-  assert.equal(installedManifest.optionalDependencies["@camoufox/camoufox"], builds.compatibility.launcherVersion);
+  assert.equal(installedManifest.dependencies[builds.compatibility.launcher], undefined, "the newer Node requirement must be optional for default installs");
+  assert.equal(installedManifest.optionalDependencies[builds.compatibility.launcher], builds.compatibility.launcherVersion);
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
-  assert.equal(lock.packages[""].optionalDependencies["@camoufox/camoufox"], builds.compatibility.launcherVersion);
-  assert.equal(lock.packages["node_modules/@camoufox/camoufox"].optional, true, "engine-strict installs may skip the incompatible optional launcher");
+  assert.equal(lock.packages[""].optionalDependencies[builds.compatibility.launcher], builds.compatibility.launcherVersion);
+  assert.equal(lock.packages[`node_modules/${builds.compatibility.launcher}`].optional, true, "engine-strict installs may skip the incompatible optional launcher");
   for (const [name, version] of [
     ["camoufox-js", builds.default.launcherVersion],
     ["playwright-core", builds.playwrightCore],
-    ["@camoufox/camoufox", builds.compatibility.launcherVersion],
+    [builds.compatibility.launcher, builds.compatibility.launcherVersion],
   ]) {
     const dependencyDir = join(hoistedModules, name);
     mkdirSync(dependencyDir, { recursive: true });
@@ -206,7 +238,7 @@ try {
     if (compatibility) assert.ok(packedDoctor.stdout.includes(`official launcher ${builds.compatibility.launcherVersion} (exact pin)`), packedDoctor.stdout);
     assert.match(packedDoctor.stdout, /1 check\(s\) failed\./, "only the missing browser should fail with hoisted packages");
   }
-  rmSync(join(hoistedModules, "@camoufox/camoufox"), { recursive: true });
+  rmSync(join(hoistedModules, builds.compatibility.launcher), { recursive: true });
   const withoutOptionalLauncher = runPackedDoctor(false);
   assert.equal(withoutOptionalLauncher.status, 1, withoutOptionalLauncher.stderr);
   assert.match(withoutOptionalLauncher.stdout, /1 check\(s\) failed\./, "default mode must not require the optional launcher");

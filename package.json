@@ -59,36 +59,34 @@
         "fetch:camoufox": "node scripts/fetch-browser.mjs",
         "doctor": "node scripts/doctor.mjs",
         "test": "npm run test:local",
-        "test:unit": "npm run build && node tests/unit_policy.mjs && node tests/unit_private_host_errors.mjs && node tests/unit_navigation.mjs && node tests/unit_sequence.mjs && node tests/unit_snapshot.mjs && node tests/unit_sqlite_shim.mjs && node tests/unit_browser_preflight.mjs && node tests/unit_browser_compatibility.mjs && node tests/unit_browser_fetch.mjs",
+        "test:unit": "npm run build && node tests/unit_policy.mjs && node tests/unit_option_gates.mjs && node tests/unit_private_host_errors.mjs && node tests/unit_stdio_guard.mjs && node tests/unit_navigation.mjs && node tests/unit_request_guard.mjs && node tests/unit_sequence.mjs && node tests/unit_snapshot.mjs && node tests/unit_screenshots.mjs && node tests/unit_sqlite_shim.mjs && node tests/unit_browser_preflight.mjs && node tests/unit_browser_compatibility.mjs && node tests/unit_browser_fetch.mjs",
         "test:local": "npm run build && PYTHONDONTWRITEBYTECODE=1 python3 tests/test_client.py --mode local",
         "test:camoufox": "npm run fetch:camoufox && npm run test:local",
         "test:docker": "./tests/run_tests.sh",
         "test:all": "npm run lint && npm audit && npm run test:unit && npm run fetch:camoufox && npm run test:local"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@modelcontextprotocol/sdk": "^1.32.2",
         "camoufox-js": "0.12.0",
-        "chalk": "^5.6.2",
+        "chalk": "^6.0.1",
         "playwright-core": "1.59.0",
-        "zod": "^4.4.3"
-    },
-    "optionalDependencies": {
-        "@camoufox/camoufox": "0.5.7-beta.4"
+        "zod": "^4.6.7"
     },
     "overrides": {
         "adm-zip": "^0.6.0",
         "js-yaml": "4.3.2",
-        "playwright-core": "1.59.0"
+        "playwright-core": "1.59.0",
+        "glob": "^14.0.2"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
-        "@types/jest": "^30.0.0",
         "@types/node": "^25.7.0",
-        "eslint": "^10.3.0",
-        "jest": "^30.4.2",
-        "rimraf": "^6.1.3",
-        "ts-jest": "^29.4.9",
+        "eslint": "^10.15.0",
+        "rimraf": "^6.1.4",
         "typescript": "^6.0.3",
-        "typescript-eslint": "^8.59.3"
+        "typescript-eslint": "^8.73.0"
+    },
+    "optionalDependencies": {
+        "camoufox": "0.5.9"
     }
 }

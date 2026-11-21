@@ -3,17 +3,24 @@ import { captchaDetectionOutputShape, diagnosticsOutputSchema, networkDiagnostic
 
 // Reused sub-schema for the per-screenshot metadata block emitted by every tool
 // that can capture a screenshot (browse, sequence, screenshot, sessions).
-export const screenshotMetadataOutputSchema = z.object({
+const screenshotMetadataShape = {
   requested: z.boolean(),
   included: z.boolean(),
   bytes: z.number().optional(),
   maxBytes: z.number().optional(),
   type: z.enum(["png", "jpeg"]).optional(),
   fullPage: z.boolean().optional(),
+  // Full-page captures: measured page size, and whether the image was cut at
+  // the server's width or full-page height limit.
+  pageWidth: z.number().optional(),
+  pageHeight: z.number().optional(),
+  clipped: z.boolean().optional(),
   selector: z.string().optional(),
   selectorFound: z.boolean().optional(),
   error: z.string().optional(),
-}).optional();
+};
+
+export const screenshotMetadataOutputSchema = z.object(screenshotMetadataShape).optional();
 
 // Snapshot interactive element, reused by snapshot/sequence/session payloads.
 const snapshotElementOutputSchema = z.object({
@@ -292,17 +299,7 @@ export const screenshotOutputSchema = z.object({
   title: z.string().optional(),
   status: z.number().optional(),
   contentType: z.string().optional(),
-  screenshot: z.object({
-    requested: z.boolean(),
-    included: z.boolean(),
-    bytes: z.number().optional(),
-    maxBytes: z.number().optional(),
-    type: z.enum(["png", "jpeg"]).optional(),
-    fullPage: z.boolean().optional(),
-    selector: z.string().optional(),
-    selectorFound: z.boolean().optional(),
-    error: z.string().optional(),
-  }),
+  screenshot: z.object(screenshotMetadataShape),
   ...captchaDetectionOutputShape,
 });
 

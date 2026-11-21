@@ -31,7 +31,13 @@ export async function buildOutlinePayload(
         }
         const path: string[] = [];
         let current: Element | null = element;
-        while (current && current !== document.documentElement && path.length < 8) {
+        // Walk to the nearest ancestor with an id, or to the root. A path cut off
+        // at a fixed depth is relative and matches the first similar subtree.
+        while (current && current !== document.documentElement) {
+          if (current !== element && current.id) {
+            path.unshift(`#${cssIdent(current.id)}`);
+            break;
+          }
           let part = current.tagName.toLowerCase();
           const parent: Element | null = current.parentElement;
           if (parent) {
@@ -69,14 +75,17 @@ export async function buildOutlinePayload(
       const landmarkCandidates = Array.from(root.querySelectorAll("[role], header, nav, main, aside, footer, form"));
       const landmarks: string[] = [];
       for (const landmark of landmarkCandidates) {
+        const role = landmark.getAttribute("role") ?? landmark.tagName.toLowerCase();
+        // Skip repeats before the limit check: a role already listed is not an
+        // omitted item.
+        if (!role || landmarks.includes(role)) {
+          continue;
+        }
         if (landmarks.length >= maxOutlineItems) {
           truncated = true;
           break;
         }
-        const role = landmark.getAttribute("role") ?? landmark.tagName.toLowerCase();
-        if (role && !landmarks.includes(role)) {
-          landmarks.push(role);
-        }
+        landmarks.push(role);
       }
 
       const description = document.querySelector<HTMLMetaElement>("meta[name='description']")?.content;

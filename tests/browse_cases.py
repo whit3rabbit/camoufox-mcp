@@ -1,3 +1,4 @@
+import base64
 import json
 import subprocess
 import threading
@@ -216,8 +217,17 @@ class BrowseCases:
         assert "200" in network_payload["statusCounts"], f"Expected status count: {network_payload}"
         print("CallTool console and network summary test passed.")
 
-    def test_call_tool_browse_rejects_oversize_fullpage_screenshot(self):
-        print("--- Running Test: Call Tool - Reject Oversize Full-Page Screenshot ---")
+    def _png_size(self, response):
+        images = [item for item in response.get("result", {}).get("content", []) if item.get("type") == "image"]
+        assert len(images) == 1, f"Expected one image: {[item.get('type') for item in response.get('result', {}).get('content', [])]}"
+        data = base64.b64decode(images[0]["data"])
+        assert data[:8] == b"\x89PNG\r\n\x1a\n", "Expected PNG data"
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+    def test_call_tool_browse_fullpage_screenshot_limits(self):
+        print("--- Running Test: Call Tool - Full-Page Screenshot Limits ---")
+        # A page taller than one viewport is the ordinary full-page case and is
+        # captured whole.
         html = """<!doctype html>
 <html>
 <body style="margin:0">
@@ -234,10 +244,38 @@ class BrowseCases:
         }, timeout=90)
         payload = self.get_tool_payload(response)
         screenshot = payload.get("screenshot", {})
-        assert screenshot.get("included") is False, f"Expected omitted screenshot: {payload}"
-        assert "dimension policy" in screenshot.get("error", ""), f"Expected dimension policy error: {payload}"
-        assert len(response.get("result", {}).get("content", [])) == 1
-        print("CallTool oversize full-page screenshot rejection test passed.")
+        assert screenshot.get("included") is True, f"Expected full-page screenshot: {payload}"
+        assert screenshot.get("pageHeight") == 3000, f"Expected measured page height: {payload}"
+        assert "clipped" not in screenshot, f"A page within the limit is not clipped: {payload}"
+        width, height = self._png_size(response)
+        scale = width / screenshot["pageWidth"]
+        assert abs(height - 3000 * scale) <= 2, f"Expected the whole page in the image: {width}x{height}"
+
+        # Beyond the full-page height limit the capture is cut at the limit and
+        # says so, instead of failing.
+        html = """<!doctype html>
+<html>
+<body style="margin:0">
+  <main style="height:12000px;width:100%;background:#eee">very tall page</main>
+</body>
+</html>"""
+        response = self._run_browse({
+            "url": self._fixture_url(html),
+            "screenshot": True,
+            "screenshotOptions": {
+                "fullPage": True
+            },
+            "maxChars": 1000
+        }, timeout=90)
+        payload = self.get_tool_payload(response)
+        screenshot = payload.get("screenshot", {})
+        assert screenshot.get("included") is True, f"Expected clipped screenshot: {payload}"
+        assert screenshot.get("clipped") is True, f"Expected clipped flag: {payload}"
+        assert screenshot.get("pageHeight") == 12000, f"Expected measured page height: {payload}"
+        width, height = self._png_size(response)
+        scale = width / screenshot["pageWidth"]
+        assert abs(height - 10000 * scale) <= 2, f"Expected the image cut at the limit: {width}x{height}"
+        print("CallTool full-page screenshot limits test passed.")
 
     def test_call_tool_browse_rejects_oversize_selector_screenshot(self):
         print("--- Running Test: Call Tool - Reject Oversize Selector Screenshot ---")

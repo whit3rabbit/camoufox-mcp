@@ -150,3 +150,6 @@ TODO.md
 publish_docker.sh
 repomix-output.xml
 .zcode
+# Python bytecode
+__pycache__/
+*.pyc
