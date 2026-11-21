@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.2] - 2026-11-21
+
+### Fixed
+
+- CI: the 2.7.1 ClawHub publish still failed because `clawhub` 0.27.0 does not count `openclaw.plugin.json` as a bundle manifest. The staged bundle now carries `.codex-plugin/plugin.json` plus `openclaw.plugin.json`, which passes `clawhub package publish --dry-run`. 2.7.0 and 2.7.1 are published to npm and Docker but not ClawHub; 2.7.2 has no other changes.
+
 ## [2.7.1] - 2026-11-21
 
 ### Fixed
