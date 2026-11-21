@@ -34,7 +34,7 @@ RUN npm prune --omit=dev
 FROM node:22-bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb xauth \
+    tini xvfb xauth \
     libgtk-3-0 libx11-xcb1 libxfixes3 libxrandr2 libxtst6 libx11-6 libxcomposite1 \
     libasound2 libdbus-glib-1-2 libpci3 libxss1 libnss3 libatk1.0-0 \
     libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libatspi2.0-0 \
@@ -52,4 +52,7 @@ COPY --from=builder --chown=myappuser:myappuser /app/node_modules ./node_modules
 COPY --from=builder --chown=myappuser:myappuser /app/dist ./dist
 COPY --from=builder --chown=myappuser:myappuser /root/.cache/camoufox /home/myappuser/.cache/camoufox
 
-ENTRYPOINT ["xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24", "node", "dist/index.js"]
+# xvfb-run is a shell script: as PID 1 it neither forwards signals nor reaps the
+# browser's orphaned children, so `docker stop` waited for the kill timeout.
+# tini does both; -g signals the whole process group so node shuts down cleanly.
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "xvfb-run", "-a", "--server-args=-screen 0 1280x1024x24", "node", "dist/index.js"]
