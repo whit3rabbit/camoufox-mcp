@@ -66,11 +66,11 @@
         "test:all": "npm run lint && npm audit && npm run test:unit && npm run fetch:camoufox && npm run test:local"
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@modelcontextprotocol/sdk": "^1.32.2",
         "camoufox-js": "0.12.0",
-        "chalk": "^5.6.2",
+        "chalk": "^6.0.1",
         "playwright-core": "1.59.0",
-        "zod": "^4.4.3"
+        "zod": "^4.6.7"
     },
     "optionalDependencies": {
         "@camoufox/camoufox": "0.5.7-beta.4"
@@ -78,17 +78,15 @@
     "overrides": {
         "adm-zip": "^0.6.0",
         "js-yaml": "4.3.2",
-        "playwright-core": "1.59.0"
+        "playwright-core": "1.59.0",
+        "glob": "^14.0.2"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
-        "@types/jest": "^30.0.0",
         "@types/node": "^25.7.0",
-        "eslint": "^10.3.0",
-        "jest": "^30.4.2",
-        "rimraf": "^6.1.3",
-        "ts-jest": "^29.4.9",
+        "eslint": "^10.15.0",
+        "rimraf": "^6.1.4",
         "typescript": "^6.0.3",
-        "typescript-eslint": "^8.59.3"
+        "typescript-eslint": "^8.73.0"
     }
 }
