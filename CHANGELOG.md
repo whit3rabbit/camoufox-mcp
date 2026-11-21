@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-11-21
+
+### Fixed
+
+- CI: the ClawHub bundle publish failed on 2.7.0 because `clawhub` 0.27.0 rejects a bundle with more than one manifest. The staged bundle now carries only `openclaw.plugin.json`. 2.7.0 is published to npm and Docker but not to ClawHub; 2.7.1 has no other changes.
+
 ## [2.7.0] - 2026-11-21
 
 ### Security
