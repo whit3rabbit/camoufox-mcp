@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-11-21
+
 ### Security
 
 - Redirect hops are validated. Playwright runs route handlers only for the first request of a redirect chain, so a redirect to a hostname that resolves to loopback or private space was never checked. Each hop is now validated, including its DNS result, and the call fails without returning page state. The hop itself has already been sent by then; network egress controls remain the way to prevent that request.
