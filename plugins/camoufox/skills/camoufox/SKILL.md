@@ -32,8 +32,9 @@ On a fresh machine, install the Camoufox binary once. From a repository checkout
 
 ## Bring the Server Up (operator / local checkout)
 
-`npx camoufox-mcp-server@latest` self-installs, but a local checkout or a first
-run needs the browser binary fetched and a preflight before you trust it:
+`npx camoufox-mcp-server@latest` installs the server package only. The server
+never downloads the browser, so a local checkout or a first run needs the
+browser binary fetched and a preflight before you trust it:
 
 ```bash
 npm install --include=optional # repository builds require Node >=22.15
@@ -46,7 +47,7 @@ npm run doctor         # preflight: pins, cached binary, live browse smoke test
 
 ## Opt In to the Newer Browser
 
-The default is beta.28 with `camoufox-js` 0.12.0 and direct `playwright-core` 1.59.0. Beta.33 compatibility uses optional `@camoufox/camoufox` 0.5.7-beta.4 and requires Node >=22.15. From a checkout:
+The default is beta.28 with `camoufox-js` 0.12.0 and direct `playwright-core` 1.59.0. Beta.41 compatibility uses the optional official `camoufox` 0.5.9 launcher and requires Node >=22.15. From a checkout:
 
 ```bash
 CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npm run fetch:camoufox

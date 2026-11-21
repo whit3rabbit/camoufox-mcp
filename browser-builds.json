@@ -15,17 +15,17 @@
     }
   },
   "compatibility": {
-    "version": "156.0.1",
-    "release": "beta.33",
-    "launcher": "@camoufox/camoufox",
-    "launcherVersion": "0.5.7-beta.4",
+    "version": "158.0.1",
+    "release": "beta.41",
+    "launcher": "camoufox",
+    "launcherVersion": "0.5.9",
     "sha256": {
-      "lin.arm64": "87837a616807225eb832829658d93900ae571fab1990ad7c6f5567b6f9aca3e1",
-      "lin.x86_64": "730d731153b2a16cac238a0b4a7f849c04d1fd6181c09ec6af29695af0407af8",
-      "mac.arm64": "ab51bb25c3c2be86cc8943483d046638d3f7064de3563df6a75015bf589bd23d",
-      "mac.x86_64": "43f378b41f3dd6c0bd3af0e3d9a4c84892fbbf4ecfd13045a20082efde74db24",
-      "win.i686": "212ff8f5a2d3e01b1fc16bb95a89fd281c980eb681d6df10742e1cc3f446452e",
-      "win.x86_64": "11f877e72240d8e47c4cc923c3ba50a55b9d4752adf1f03df0b3f22918e13c55"
+      "lin.arm64": "60e25f6eb95e13d9ec655bc02913d51057e669cb31542e6ace9d2190ab5380af",
+      "lin.x86_64": "3f2eb1d0451fa58e45e43e55f5e6181565069791ae60c0574f0ceb1f01341c33",
+      "mac.arm64": "9038f86d666c9780b6fff199d488737b8596c01f24e3e517845a0ecfb0cf8add",
+      "mac.x86_64": "1afd6caa1e82caa41a4f56d8519f673e36b0835700b1c9c904e78a84c5711f3a",
+      "win.i686": "5c6b4e57764ff6caa568c6ce77a01c03c7ad5da560c3e22097def2c28235f09d",
+      "win.x86_64": "2644bd14f1cc345c768f6a70b576bcc87eb3d0bf0df54856d6fe0bbc3027515f"
     }
   }
 }

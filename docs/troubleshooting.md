@@ -16,7 +16,7 @@ issues below in one command.
 
 2. **"Cannot find module"**
    - Repository builds require Node.js >=22.15 and `npm install --include=optional`; the published default runtime supports Node.js >=22.0.
-   - Compatibility mode requires the optional `@camoufox/camoufox` launcher. If npm skipped it, use Node.js >=22.15 and reinstall with `--include=optional` before enabling `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1`.
+   - Compatibility mode requires the optional `camoufox` launcher. If npm skipped it, use Node.js >=22.15 and reinstall with `--include=optional` before enabling `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1`.
    - For global install: `npm install -g camoufox-mcp-server@latest`
 
 3. **"MCP server not responding"**
@@ -60,7 +60,8 @@ issues below in one command.
 
 10. **Browser fails to launch / `Library not loaded: @rpath/libmozglue.dylib` after changing binary versions**
     - Overlaying browser builds can corrupt the cached bundle. The pinned installer clears the selected cache when replacing a build. Run `npm run fetch:camoufox` with the same environment as the server.
-    - Default caches are `~/Library/Caches/camoufox` on macOS and `~/.cache/camoufox` on Linux. Compatibility mode uses a `camoufox-compatibility` sibling unless `CAMOUFOX_INSTALL_DIR` is set. `XDG_CACHE_HOME` does not select the browser directory.
+    - Default caches are `~/Library/Caches/camoufox` on macOS and `~/.cache/camoufox` on Linux. Compatibility mode uses a `camoufox-compatibility` sibling unless `CAMOUFOX_INSTALL_DIR` is set. `XDG_CACHE_HOME` does not select the browser directory. On Windows the compatibility sibling is `%LOCALAPPDATA%\\camoufox\\camoufox\\Cache-compatibility`.
+    - "Compatibility fingerprint model is missing" or "GeoIP database is missing" after installing or repairing the default browser: The launcher keeps its fingerprint model and GeoIP databases in its own cache directory (`~/.cache/camoufox` on Linux, following `XDG_CACHE_HOME`; `~/Library/Caches/camoufox` on macOS), which `CAMOUFOX_INSTALL_DIR` does not move. A default-mode browser install replaces that directory, so rerun the compatibility fetch afterwards.
     - If metadata matches but libraries are corrupt, stop the MCP process, remove or move aside that exact cache directory, and run the pinned installer again. `npm run doctor` reports which directory and build it expects.
 
 11. **`Browser.setDefaultViewport ... isMobile ... not described in this scheme`, or anti-detection regressed after `npx @latest`**

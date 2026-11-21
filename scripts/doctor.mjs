@@ -226,8 +226,8 @@ checkNode();
 checkCamoufoxPin();
 if (compatibility) {
   try {
-    const installed = installedPackage("@camoufox/camoufox").version;
-    const declared = req("package.json").optionalDependencies?.["@camoufox/camoufox"];
+    const installed = installedPackage(selectedBuild.launcher).version;
+    const declared = req("package.json").optionalDependencies?.[selectedBuild.launcher];
     if (installed === selectedBuild.launcherVersion && declared === installed) ok(`official launcher ${installed} (exact pin)`);
     else fail("official launcher version mismatch", "use Node >=22.15 and run npm install --include=optional");
   } catch { fail("official launcher is not installed", "use Node >=22.15 and run npm install --include=optional"); }

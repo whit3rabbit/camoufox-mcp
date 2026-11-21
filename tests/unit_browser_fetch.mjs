@@ -73,27 +73,27 @@ try {
   assertCompatibilityNode("22.15.0");
   assertCompatibilityNode("24.0.0");
   const addonDir = join(dir, "UBO");
+  const requestedAddons = [];
   const assets = {
     ...splitGeoip,
     ensureModel: async () => {},
     isModelInstalled: () => true,
     DefaultAddons: { UBO: "fixture" },
-    getAddonPath: () => addonDir,
-    // Reproduce upstream returning successfully after catching a download error.
-    maybeDownloadAddons: async () => {},
+    executablePath: "/fixture/camoufox-bin",
+    getAddonPath: (name, executablePath) => { requestedAddons.push([name, executablePath]); return addonDir; },
   };
-  await assert.rejects(ensureCompatibilityAssets(assets), /UBO addon installation failed/);
+  // The launcher bundles its addons with the browser and launches without one
+  // that is missing. The fetch must not report success in that state.
+  await assert.rejects(ensureCompatibilityAssets(assets), /UBO addon is missing from the browser install/);
+  assert.deepEqual(requestedAddons[0], ["UBO", "/fixture/camoufox-bin"], "addons are located beside the pinned executable");
   await assert.rejects(ensureCompatibilityAssets({
     ...assets,
     isModelInstalled: () => false,
   }), /fingerprint model installation is incomplete/);
-  await ensureCompatibilityAssets({
-    ...assets,
-    maybeDownloadAddons: async () => {
-      mkdirSync(addonDir);
-      writeFileSync(join(addonDir, "manifest.json"), "{}");
-    },
-  });
+  mkdirSync(addonDir);
+  await assert.rejects(ensureCompatibilityAssets(assets), /UBO addon is missing/, "an addon directory without a manifest is not installed");
+  writeFileSync(join(addonDir, "manifest.json"), "{}");
+  await ensureCompatibilityAssets(assets);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

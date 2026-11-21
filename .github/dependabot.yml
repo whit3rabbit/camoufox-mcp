@@ -19,7 +19,7 @@ updates:
       # docs/browser-compatibility.md. Security advisories still open PRs.
       - dependency-name: playwright-core
       - dependency-name: camoufox-js
-      - dependency-name: "@camoufox/camoufox"
+      - dependency-name: camoufox
       # typescript-eslint supports TypeScript below 6.1.
       - dependency-name: typescript
         versions: [">=6.1.0"]

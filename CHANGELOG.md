@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NAT64 addresses in `64:ff9b::/96` are judged by their embedded IPv4 address, so public IPv4 sites work on IPv6-only networks with DNS64.
 - Integer settings must be plain integers. Values such as `10m` or `1e5` are ignored with a warning instead of being read as `10` and `1`.
 - The Docker image runs under `tini`, so `docker stop` shuts the server down immediately and browser child processes are reaped.
+- Compatibility mode (`CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1`) moves from Camoufox 156.0.1-beta.33 to 158.0.1-beta.41, and from the deprecated `@camoufox/camoufox` 0.5.7-beta.4 launcher to its renamed successor `camoufox` 0.5.9. Rerun the compatibility fetch after upgrading: the runtime rejects the old build. The launcher now keeps its fingerprint model and GeoIP databases in its own cache directory, which `CAMOUFOX_INSTALL_DIR` does not move, and uBlock Origin ships inside the browser archive. World isolation stays disabled in this mode: upstream issue #775 is unfixed in beta.41, where page and iframe WebSockets bypass interception with isolation on. The default browser (152.0.4-beta.28), `camoufox-js` 0.12.0, and `playwright-core` 1.59.0 are unchanged.
 
 ### Added
 

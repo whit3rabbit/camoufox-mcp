@@ -7,8 +7,8 @@ The server applies deny-by-default policy checks before and during browsing:
 | `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS` | unset | Set to `1` to allow `args`, `firefox_user_prefs`, `exclude_addons`, and `block_webrtc: false` |
 | `CAMOUFOX_MCP_ALLOW_EVALUATE` | unset | Set to `1` to allow `browse_sequence` evaluate actions. This is unsafe because page JavaScript can read page state |
 | `CAMOUFOX_MCP_ALLOWED_PRIVATE_HOSTS` | unset | Comma-separated exact hostnames allowed to resolve to loopback, RFC1918, or IPv6 unique-local addresses for local development |
-| `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` | unset | Set to `1` during installation and startup to use beta.33 with page/iframe WebSocket routing and reduced stealth relative to upstream defaults |
-| `CAMOUFOX_INSTALL_DIR` | OS browser cache | Use the same directory during installation and startup; compatibility otherwise uses a separate sibling cache |
+| `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` | unset | Set to `1` during installation and startup to use beta.41 with page/iframe WebSocket routing and reduced stealth relative to upstream defaults |
+| `CAMOUFOX_INSTALL_DIR` | OS browser cache | Browser directory. Use the same value during installation and startup; compatibility otherwise uses a separate sibling cache. The compatibility launcher's fingerprint model and GeoIP data stay in its own cache directory |
 | `CAPTCHA_AUTONOMOUS` | unset | Set to `true` to mark challenge responses as LLM-assisted and return provider-specific `challengePlaybook` context when known |
 | `CAMOUFOX_MCP_NETWORK_SANDBOX` | unset | Set to `1` only after configuring container, VM, or firewall egress controls |
 | `CAMOUFOX_MCP_REQUIRE_NETWORK_SANDBOX` | unset | Set to `1` to refuse startup unless `CAMOUFOX_MCP_NETWORK_SANDBOX=1` is also set |

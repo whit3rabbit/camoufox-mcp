@@ -2,9 +2,10 @@
 // Select tagged, checksummed builds, never the updater's ambiguous release listing.
 import { createHash } from "node:crypto";
 import { accessSync, constants, createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import builds from "../browser-builds.json" with { type: "json" };
 
 const compatibility = process.env.CAMOUFOX_MCP_BROWSER_COMPATIBILITY === "1";
@@ -18,12 +19,16 @@ if (compatibility && !process.env.CAMOUFOX_INSTALL_DIR) {
 }
 const { CamoufoxFetcher, INSTALL_DIR, OS_NAME } = await import("camoufox-js/dist/pkgman.js");
 
+export function browserExecutablePath(dir = INSTALL_DIR) {
+  return OS_NAME === "mac" ? join(dir, "Camoufox.app", "Contents", "MacOS", "camoufox")
+    : join(dir, OS_NAME === "win" ? "camoufox.exe" : "camoufox-bin");
+}
+
 export function isBrowserInstalled(dir = INSTALL_DIR, build = selectedBuild) {
   try {
     const metadata = JSON.parse(readFileSync(join(dir, "version.json"), "utf8"));
     if (metadata.version !== build.version || metadata.release !== build.release) return false;
-    const binary = OS_NAME === "mac" ? join(dir, "Camoufox.app", "Contents", "MacOS", "camoufox")
-      : join(dir, OS_NAME === "win" ? "camoufox.exe" : "camoufox-bin");
+    const binary = browserExecutablePath(dir);
     if (!statSync(binary).isFile()) return false;
     accessSync(binary, OS_NAME === "win" ? constants.F_OK : constants.X_OK);
     return true;
@@ -56,35 +61,52 @@ export function assertCompatibilityNode(version = process.versions.node) {
   }
 }
 
-export async function ensureCompatibilityAssets({ ensureModel, isModelInstalled, DefaultAddons, maybeDownloadAddons, getAddonPath, ...geoip }) {
+export async function ensureCompatibilityAssets({ ensureModel, isModelInstalled, DefaultAddons, getAddonPath, executablePath, ...geoip }) {
   await ensureModel();
   if (!isModelInstalled()) throw new Error("Compatibility fingerprint model installation is incomplete. Rerun the compatibility fetch.");
-  await maybeDownloadAddons(DefaultAddons);
-  // The upstream addon downloader swallows failures. Verify its result before
-  // reporting success, since the runtime refuses launches without this asset.
+  // The launcher's default addons ship inside the browser archive. It launches
+  // without one that is missing, with only a warning, so verify the install
+  // before reporting success: the runtime refuses launches without this asset.
   for (const addon of Object.keys(DefaultAddons)) {
-    if (!existsSync(join(getAddonPath(addon), "manifest.json"))) {
-      throw new Error(`Compatibility ${addon} addon installation failed. Rerun the compatibility fetch.`);
+    if (!existsSync(join(getAddonPath(addon, executablePath), "manifest.json"))) {
+      throw new Error(`Compatibility ${addon} addon is missing from the browser install. Rerun the compatibility fetch.`);
     }
   }
   await ensureCompatibilityGeoip(geoip);
 }
 
 async function loadCompatibilityAssets() {
+  const launcher = selectedBuild.launcher;
+  let launcherEntry;
   try {
-    import.meta.resolve("@camoufox/camoufox");
+    launcherEntry = fileURLToPath(import.meta.resolve(launcher));
   } catch (error) {
     if (error?.code === "ERR_MODULE_NOT_FOUND") {
       throw new Error("Compatibility launcher is not installed. Use Node >=22.15, run `npm install --include=optional`, then rerun the compatibility fetch.", { cause: error });
     }
     throw error;
   }
+  // Import the launcher first: loading it points the fingerprint model at the
+  // launcher's own data directory. The model package publishes ensureModel but
+  // not its installed check, so load that module by path from the same copy.
+  await import(launcher);
+  const modelPath = join(dirname(createRequire(launcherEntry).resolve("fpgen-js")), "model.js");
   const [model, addons, geoip] = await Promise.all([
-    import("@camoufox/camoufox/dist/fpgen/index.js"),
-    import("@camoufox/camoufox/dist/addons.js"),
-    import("@camoufox/camoufox/dist/geolocation.js"),
+    import(pathToFileURL(modelPath).href),
+    import(`${launcher}/dist/addons.js`),
+    import(`${launcher}/dist/geolocation.js`),
   ]);
-  return { ...model, ...addons, ...geoip };
+  return {
+    ensureModel: model.ensureModel,
+    isModelInstalled: model.isModelInstalled,
+    DefaultAddons: addons.DefaultAddons,
+    getAddonPath: addons.getAddonPath,
+    executablePath: browserExecutablePath(),
+    downloadMmdb: geoip.downloadMmdb,
+    getMmdbPath: geoip.getMmdbPath,
+    loadGeoipConfig: geoip.loadGeoipConfig,
+    needsUpdate: geoip.needsUpdate,
+  };
 }
 
 export class PinnedFetcher extends CamoufoxFetcher {

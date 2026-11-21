@@ -1,10 +1,10 @@
 # Browser compatibility
 
-The default remains Camoufox 152.0.4-beta.28 with `camoufox-js` 0.12.0 and `playwright-core` 1.59.0. You can opt into Camoufox 156.0.1-beta.33 with page and iframe WebSocket interception restored. This requires disabling the newer browser's world isolation, which exposes automation JavaScript to websites.
+The default remains Camoufox 152.0.4-beta.28 with `camoufox-js` 0.12.0 and `playwright-core` 1.59.0. You can opt into Camoufox 158.0.1-beta.41 with page and iframe WebSocket interception restored. This requires disabling the newer browser's world isolation, which exposes automation JavaScript to websites.
 
 ## Enable the newer browser
 
-Compatibility mode requires Node.js 22.15 or higher and the optional `@camoufox/camoufox` launcher. The published default runtime supports Node.js 22.0 or higher without that launcher. Building this repository requires Node.js 22.15 or higher and the optional launcher for its TypeScript declarations. From a repository checkout, install optional dependencies and supporting assets, then use the same environment when starting the server:
+Compatibility mode requires Node.js 22.15 or higher and the optional `camoufox` launcher. The published default runtime supports Node.js 22.0 or higher without that launcher. Building this repository requires Node.js 22.15 or higher and the optional launcher for its TypeScript declarations. From a repository checkout, install optional dependencies and supporting assets, then use the same environment when starting the server:
 
 ```bash
 npm install --include=optional
@@ -23,9 +23,9 @@ CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.6
 
 Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor` directly. Add `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` to your MCP host's server environment so it launches the matching mode.
 
-The newer browser uses the official `@camoufox/camoufox` 0.5.7-beta.4 launcher and its default fingerprint model. If npm skipped optional dependencies, use Node.js 22.15 or higher and run `npm install --include=optional` before enabling compatibility mode. The server's direct `playwright-core` pin stays at 1.59.0. The installer prepares the fingerprint model, addons, and geolocation database before launch.
+The newer browser uses the official `camoufox` 0.5.9 launcher, the renamed successor of `@camoufox/camoufox`, and its default fingerprint model. If npm skipped optional dependencies, use Node.js 22.15 or higher and run `npm install --include=optional` before enabling compatibility mode. The server's direct `playwright-core` pin stays at 1.59.0. The installer prepares the fingerprint model and geolocation database and verifies the uBlock Origin addon bundled with the browser before launch. The launcher keeps its fingerprint model and GeoIP databases in its own cache directory (`~/.cache/camoufox` on Linux, following `XDG_CACHE_HOME`; `~/Library/Caches/camoufox` on macOS), which `CAMOUFOX_INSTALL_DIR` does not move. A default-mode browser install replaces that directory, so rerun the compatibility fetch afterwards.
 
-Without an explicit `CAMOUFOX_INSTALL_DIR`, compatibility mode uses a separate sibling cache named `camoufox-compatibility`. For example, macOS uses `~/Library/Caches/camoufox-compatibility`. Set `CAMOUFOX_INSTALL_DIR` on both installation and startup to choose another directory. Unset the compatibility flag to return to the default browser.
+Without an explicit `CAMOUFOX_INSTALL_DIR`, compatibility mode uses a separate sibling cache named `camoufox-compatibility`. For example, macOS uses `~/Library/Caches/camoufox-compatibility`; on Windows the sibling is `%LOCALAPPDATA%\\camoufox\\camoufox\\Cache-compatibility`. Set `CAMOUFOX_INSTALL_DIR` on both installation and startup to choose another directory. Unset the compatibility flag to return to the default browser.
 
 Check `camoufox_status.browserCompatibility`: it reports the mode, expected and installed versions, launcher, and world-isolation warning. Run an actual `browse` to confirm the browser launches.
 
@@ -41,7 +41,7 @@ The [`mw:` init-script fix in PR #745](https://github.com/daijro/camoufox/pull/7
 
 ## Remaining network and output limits
 
-Playwright's frame-based `routeWebSocket` does not prevent WebSockets opened by dedicated workers. Real-browser probes on beta.28 default and beta.33 compatibility each recorded zero routing callbacks and one accepted upgrade on a local WebSocket server. This limitation exists in both modes.
+Playwright's frame-based `routeWebSocket` does not prevent WebSockets opened by dedicated workers. Real-browser probes on beta.28 default and the earlier beta.33 compatibility build each recorded zero routing callbacks and one accepted upgrade on a local WebSocket server. This limitation exists in both modes.
 
 For untrusted URLs, enforce private-network blocking with actual VM, firewall, or filtering-proxy egress rules. Browser-context isolation and a Docker container alone do not establish those rules. The server's URL policy remains best-effort; see [privacy and security](privacy-security.md).
 
@@ -51,14 +51,11 @@ Snapshot extraction reads text, interactive metadata, and ARIA separately. It no
 
 ## Release and download policy
 
-As of 2026-11-21 the pins are unchanged, for these reasons:
+As of 2026-11-21:
 
-- [#775](https://github.com/daijro/camoufox/issues/775) (WebSocket route mocks land in the isolated world) is still open with no activity since it was filed. No release from beta.34 through beta.42 mentions world isolation or WebSocket routing, so compatibility mode still needs `disableWorldIsolation`, and the default stays on beta.28.
-- Newer browser builds exist: [158.0.1-beta.41](https://github.com/daijro/camoufox/releases/tag/v158.0.1-beta.41) is the upstream latest and [159.0-beta.42](https://github.com/daijro/camoufox/releases/tag/v159.0-beta.42) is a prerelease. Their asset names still follow `camoufox-<version>-<release>-<os>.<arch>.zip`.
-- The compatibility launcher `@camoufox/camoufox` is deprecated on npm in favour of `camoufox`. `camoufox` 0.5.9 pairs with 158.0.1-beta.41. Moving to it is an adapter change, not a rename: the fingerprint model moved to the `fpgen-js` package, addons are bundled with the browser instead of downloaded, and the launcher's own data directory no longer follows `CAMOUFOX_INSTALL_DIR`.
-- Playwright stays at 1.59.0. Both launchers cap `playwright-core` below 1.63, Playwright 1.61 and later need browser beta.30 or newer, and [#873](https://github.com/daijro/camoufox/issues/873) reports that Playwright 1.64 breaks every `page.route()` on builds before beta.42.
-
-A move to `camoufox` 0.5.9 with 158.0.1-beta.41 needs the full browser suite in compatibility mode, in particular the private-WebSocket cases, before it is adopted. beta.31 is the precedent for a build that looked routine and failed them.
+- **Default mode is unchanged** at beta.28 with `camoufox-js` 0.12.0. [#775](https://github.com/daijro/camoufox/issues/775) (WebSocket route mocks land in the isolated world) is still open with no activity since it was filed, and no release from beta.34 through beta.42 mentions world isolation or WebSocket routing. A direct probe of 158.0.1-beta.41 with default isolation confirmed it: page and iframe WebSockets to a loopback listener were not routed and both connected. With `disableWorldIsolation` the same probe routed and closed both with no connection.
+- **Compatibility mode moved** from 156.0.1-beta.33 to [158.0.1-beta.41](https://github.com/daijro/camoufox/releases/tag/v158.0.1-beta.41), upstream's latest release, and from the deprecated `@camoufox/camoufox` 0.5.7-beta.4 launcher to its renamed successor `camoufox` 0.5.9, which pairs with that build. The fingerprint model now comes from the launcher's `fpgen-js` dependency and uBlock Origin ships inside the browser archive. [159.0-beta.42](https://github.com/daijro/camoufox/releases/tag/v159.0-beta.42) is a prerelease and was not evaluated.
+- **Playwright stays at 1.59.0.** Both launchers cap `playwright-core` below 1.63, Playwright 1.61 and later need browser beta.30 or newer (which rules them out for the default build), and [#873](https://github.com/daijro/camoufox/issues/873) reports that Playwright 1.64 breaks every `page.route()` on builds before beta.42.
 
 Use `npm run fetch:camoufox`. The installer selects an exact tagged asset from `browser-builds.json` and verifies its SHA-256 before extraction. The manifest records all six supported platform assets for each mode. Runtime preflight rejects the wrong browser version before launch.
 
@@ -66,11 +63,13 @@ Avoid `camoufox-js fetch`: its release-list selection previously picked beta.31 
 
 ## Validation
 
-Doctor and a live `browse` to `https://example.com` passed in both modes. Beta.33 compatibility probes also blocked private WebSockets from pages and iframes without connecting to the target. The worker probes above establish the remaining interception gap.
+Current pins, checked on 2026-11-21 on Linux x86_64 in a cloud container (Node 22.23, Xvfb):
 
-Earlier runs passed all 64 Python browser-suite cases in both modes on macOS arm64. Focused checks after the installer and policy follow-ups passed policy, sequence, SQLite, preflight, compatibility adapter, and pinned-fetch suites. Lint passed, and `npm audit` reported zero vulnerabilities. The subsequent Docker runtime run exposed the snapshot-navigation race described above; use the matching CI run for validation of that fix.
+- **Compatibility mode, `camoufox` 0.5.9 with 158.0.1-beta.41:** the Python browser suite passed 74 of 74 cases in two consecutive runs with GeoIP enabled, including the four private-WebSocket cases and the screenshot cases, with no non-protocol output on stdout. The pinned installer verified the archive digest and the bundled uBlock Origin addon. All six platform archives were hashed and each digest equals the one upstream publishes for the release; only the Linux x86_64 archive was installed and run.
+- **Default mode, `camoufox-js` 0.12.0 with 152.0.4-beta.28:** 73 of 74 cases with `--no-geoip`, because that container could not fetch the default GeoIP database. The failing case, `test_call_tool_sequence_failure_reports_private_host_policy`, also fails on the code before these changes in that container: there the beta.28 build issues a request scheduled 1.5 s after load about 2 s late, past the test's 3 s wait. GeoIP-enabled launches in default mode were not exercised.
+- **Not checked there:** doctor's live smoke test (the container's TLS-intercepting proxy breaks any public HTTPS browse), the Docker image, macOS, and Windows. Use the matching CI run for those.
 
-A fresh compatibility install verified the browser archive. The final installer run verified the required assets, and both final doctor runs completed a real browse. The npm package dry run confirmed the installer, doctor, and shared browser manifest are included.
+Earlier evidence for the previous pins: all 64 Python browser-suite cases passed in both modes on macOS arm64 with beta.28 and beta.33, and doctor completed a real browse in both. The worker probes above establish the remaining interception gap.
 
 Anti-detection quality has not been tested. These checks do not establish a private-network sandbox, and worker WebSockets retain the limitation described above.
 

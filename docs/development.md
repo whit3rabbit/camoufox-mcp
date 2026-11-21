@@ -53,7 +53,7 @@ If Camoufox has not been downloaded yet, run:
 npm run fetch:camoufox
 ```
 
-To test beta.33 compatibility, use `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` for the pinned fetch, doctor, MCP host environment, and test command. The mode uses a separate cache unless `CAMOUFOX_INSTALL_DIR` is set. See [browser compatibility](browser-compatibility.md) for setup, verified versions, and network limits.
+To test beta.41 compatibility, use `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` for the pinned fetch, doctor, MCP host environment, and test command. The mode uses a separate cache unless `CAMOUFOX_INSTALL_DIR` is set. See [browser compatibility](browser-compatibility.md) for setup, verified versions, and network limits.
 
 ### Running Tests
 
