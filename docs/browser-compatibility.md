@@ -51,7 +51,14 @@ Snapshot extraction reads text, interactive metadata, and ARIA separately. It no
 
 ## Release and download policy
 
-As of 2026-10-03, [156.0.1-beta.33](https://github.com/daijro/camoufox/releases/tag/v156.0.1-beta.33) is the newest published browser release and is marked prerelease. Its notes cover humanized input and release automation. The native routing fix described in #775 remains open. The [Firefox 157 update in PR #822](https://github.com/daijro/camoufox/pull/822) is also open, with no published browser release to adopt.
+As of 2026-11-21 the pins are unchanged, for these reasons:
+
+- [#775](https://github.com/daijro/camoufox/issues/775) (WebSocket route mocks land in the isolated world) is still open with no activity since it was filed. No release from beta.34 through beta.42 mentions world isolation or WebSocket routing, so compatibility mode still needs `disableWorldIsolation`, and the default stays on beta.28.
+- Newer browser builds exist: [158.0.1-beta.41](https://github.com/daijro/camoufox/releases/tag/v158.0.1-beta.41) is the upstream latest and [159.0-beta.42](https://github.com/daijro/camoufox/releases/tag/v159.0-beta.42) is a prerelease. Their asset names still follow `camoufox-<version>-<release>-<os>.<arch>.zip`.
+- The compatibility launcher `@camoufox/camoufox` is deprecated on npm in favour of `camoufox`. `camoufox` 0.5.9 pairs with 158.0.1-beta.41. Moving to it is an adapter change, not a rename: the fingerprint model moved to the `fpgen-js` package, addons are bundled with the browser instead of downloaded, and the launcher's own data directory no longer follows `CAMOUFOX_INSTALL_DIR`.
+- Playwright stays at 1.59.0. Both launchers cap `playwright-core` below 1.63, Playwright 1.61 and later need browser beta.30 or newer, and [#873](https://github.com/daijro/camoufox/issues/873) reports that Playwright 1.64 breaks every `page.route()` on builds before beta.42.
+
+A move to `camoufox` 0.5.9 with 158.0.1-beta.41 needs the full browser suite in compatibility mode, in particular the private-WebSocket cases, before it is adopted. beta.31 is the precedent for a build that looked routine and failed them.
 
 Use `npm run fetch:camoufox`. The installer selects an exact tagged asset from `browser-builds.json` and verifies its SHA-256 before extraction. The manifest records all six supported platform assets for each mode. Runtime preflight rejects the wrong browser version before launch.
 

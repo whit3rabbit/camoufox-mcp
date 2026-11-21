@@ -41,7 +41,8 @@ Repository builds require Node >=22.15 and the optional launcher installed with 
 
 ### Testing Individual Components
 - Run Python test client directly: `python tests/test_client.py` (supports --mode docker|local)
-- Test server in Docker: `docker run --rm followthewhit3rabbit/camoufox-mcp`
+- Test server in Docker: `docker run -i --rm followthewhit3rabbit/camoufox-mcp` (`-i` is required: the server speaks MCP over stdin and exits when it closes)
+- The Python client accepts `--tests a,b` to run selected cases, `--keep-going` to report every failure, and `--no-geoip` for environments that cannot fetch the GeoIP database. It fails the run if the server writes anything but JSON-RPC to stdout.
 - `camoufox_status` is a cheap liveness check but does not launch a browser; `browserAvailable: true` does not guarantee a `browse` will launch. Confirm an actual `browse` works before trusting the browser.
 - Smoke-test the server without an MCP host via raw JSON-RPC against `node dist/index.js` (see `plugins/camoufox/skills/camoufox/references/json-rpc-debug.md`): send `initialize`, then a `browse` `tools/call`.
 
@@ -99,7 +100,7 @@ For an authorized manual recovery, publish by rerunning the same `clawhub packag
 
 ## Release & Versioning
 
-Releases are tag-driven. `.github/workflows/ci.yml` runs a four-job Ubuntu 24.04 matrix: Node 22/24 with default/compatibility browser modes. Each job checks release versions, installs optional dependencies, and runs lint, audit, unit tests, pinned fetch, and the browser client suite in separate steps. The read-only job token is available only to the fetch step for upstream GitHub API requests. Pull requests also build and test the `linux/amd64` Docker image. Local checks and configured coverage do not establish a successful GitHub Actions run.
+Releases are tag-driven. `.github/workflows/ci.yml` runs a four-job Ubuntu 24.04 matrix: Node 22/24 with default/compatibility browser modes. Each job checks release versions, installs optional dependencies, and runs lint, audit, unit tests, pinned fetch, and the browser client suite in separate steps. In the test matrix the job token is read-only and is available only to the fetch step for upstream GitHub API requests. Pull requests build and test the `linux/amd64` Docker image in a separate read-only `docker-test` job; the publishing Docker job, whose token can write packages, runs only for `main`, tags, and manual dispatch. Workflow actions are pinned to commit SHAs and kept current by Dependabot. Local checks and configured coverage do not establish a successful GitHub Actions run.
 
 Pushing a `v*` tag additionally publishes to NPM (Trusted Publishing / OIDC), builds and pushes Docker images (Docker Hub + GHCR), publishes the ClawHub bundle, and creates a GitHub Release after the publication jobs succeed.
 
@@ -226,7 +227,12 @@ Start and manipulate isolated, short-lived browser sessions. Sessions are epheme
 - The server validates tool calls using comprehensive Zod schemas
 - Initial URLs, final navigation URLs, and browser requests are rejected if they target localhost, private, link-local, or reserved IP space
 - Session slots are reserved before launch so concurrent starts cannot exceed `CAMOUFOX_MCP_MAX_SESSIONS`
-- Session reads/actions must surface delayed blocked requests before returning page state
+- Session reads/actions must surface delayed blocked requests before returning page state. A request aborted before it was sent is reported once and cleared (`RequestGuard.takeBlock`); a redirect hop that was already sent stays recorded until the next session navigation.
+- Route handlers do not run for redirect hops. `installRequestGuard` validates hops (including DNS) from the `request` event and `settle()`/`assertSettled()` wait for those checks; call `assertSettled()` rather than `assertAllowed()` before returning page-derived data.
+- Every page-derived read (text, snapshot, screenshot, title, challenge detection) goes through `runGuardedPageRead`, which also bounds it with `CAMOUFOX_MCP_PAGE_READ_TIMEOUT_MS`.
+- `src/stdio-guard.ts` must stay the first import of `src/index.ts`. It redirects `process.stdout` to stderr and gives the transport a private stream, because launcher dependencies print to stdout.
+- Local deadlines throw `OperationTimeoutError`. Test for the class (`isOperationTimeout`), never the message text: page code can throw any message. A session closes on timeout only when an action was abandoned mid-flight.
+- MCP cancellation reaches the runtime through `src/request-context.ts`. Read the signal synchronously at the start of an operation; Playwright callbacks inherit the launching request's context.
 - Snapshot reads allow up to three extraction attempts within 10 seconds and fail if navigation continues. Preserve the document-identity check for reloads at the same URL, and never replay actions during extraction retries.
 - Click actions support `clickMode`: `dom` is the default CI/Xvfb-stable DOM activation path, `pointer` uses Playwright pointer input, and `auto` tries pointer first before DOM fallback.
 - `camoufox_status.networkSecurity` reports application-layer best-effort SSRF policy and conservative network sandbox posture. Dedicated-worker WebSockets evade the frame-based routing guard in both browser modes. Untrusted browsing requires actual VM, firewall, filtering proxy, or controlled container egress rules. Docker/container detection is not proof of egress filtering.
