@@ -141,10 +141,9 @@ jobs:
 
         version="$(node -p 'require("./package.json").version')"
         stage="$(mktemp -d)"
-        mkdir -p "$stage/.codex-plugin" "$stage/.claude-plugin" \
-                 "$stage/skills/camoufox/agents" "$stage/skills/camoufox/references"
-        cp plugins/camoufox/.codex-plugin/plugin.json "$stage/.codex-plugin/plugin.json"
-        cp plugins/camoufox/.claude-plugin/plugin.json "$stage/.claude-plugin/plugin.json"
+        mkdir -p "$stage/skills/camoufox/agents" "$stage/skills/camoufox/references"
+        # clawhub 0.27.0 rejects a bundle with more than one manifest, so only the
+        # OpenClaw manifest is staged; the codex and claude manifests ship via git.
         cp plugins/camoufox/.mcp.json "$stage/.mcp.json"
         cp plugins/camoufox/openclaw.plugin.json "$stage/openclaw.plugin.json"
         cp plugins/camoufox/package.json "$stage/package.json"

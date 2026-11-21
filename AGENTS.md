@@ -60,9 +60,7 @@ clawhub package validate plugins/camoufox --json
 
 version="$(node -p 'require("./package.json").version')"
 stage="$(mktemp -d /private/tmp/camoufox-clawhub-final.XXXXXX)"
-mkdir -p "$stage/.codex-plugin" "$stage/.claude-plugin" "$stage/skills/camoufox/agents" "$stage/skills/camoufox/references"
-cp plugins/camoufox/.codex-plugin/plugin.json "$stage/.codex-plugin/plugin.json"
-cp plugins/camoufox/.claude-plugin/plugin.json "$stage/.claude-plugin/plugin.json"
+mkdir -p "$stage/skills/camoufox/agents" "$stage/skills/camoufox/references"
 cp plugins/camoufox/.mcp.json "$stage/.mcp.json"
 cp plugins/camoufox/openclaw.plugin.json "$stage/openclaw.plugin.json"
 cp plugins/camoufox/package.json "$stage/package.json"
