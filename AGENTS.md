@@ -54,6 +54,7 @@ Tagged releases publish the OpenClaw bundle automatically. Use the manual clean-
 - Keep `plugins/camoufox/openclaw.plugin.json`, `plugins/camoufox/package.json`, `.codex-plugin/plugin.json`, and `.claude-plugin/plugin.json` versions aligned with the repo release version.
 - Do not publish directly from `plugins/camoufox/` if it contains generated `reports/`, `skills/camoufox/evals/`, or `skills/camoufox-workspace/`. Build a clean staging directory and publish that instead.
 - Validate before publishing. `clawhub package validate` writes `reports/` into the source folder, so validate first, then rebuild the clean staging directory for the final dry-run and publish.
+- **Run the dry-run below before every release tag, not only for recovery.** `validate` passes on layouts that `publish` rejects (it passed the bundle that failed v2.7.0 and v2.7.1). Only `publish --dry-run` on the staged directory runs the manifest check, and it needs no login or token. The CI job stages the same files, so keep the CI `cp` list and this block identical.
 
 ```bash
 clawhub package validate plugins/camoufox --json
@@ -116,7 +117,9 @@ Release steps:
 1. Bump all seven version strings and both root `package-lock.json` version records to the new version. Run `node tests/check_release_versions.mjs`.
 2. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [x.y.z] - YYYY-MM-DD` heading; leave a fresh empty `[Unreleased]`.
 3. Run `npm run test:all` (or at least `npm run build` + `npm run test:unit`) and commit.
-4. Tag `vX.Y.Z` and push the tag when release publication is authorized. CI handles NPM, Docker, ClawHub, and the GitHub Release; the release body links `CHANGELOG.md`.
+4. Run the ClawHub staging dry-run from the ClawHub section and confirm it lists the runtime files and no manifest error. Do this before tagging: a tag cannot be repaired (see Release gotchas).
+5. Refresh the pinned npx examples to the new version: `grep -rn 'camoufox-mcp-server@' README.md AGENTS.md llms.txt docs plugins/camoufox/skills`. Leave "added in 2.6.0" style mentions alone; they record when a feature shipped.
+6. Tag `vX.Y.Z` and push the tag when release publication is authorized. CI handles NPM, Docker, ClawHub, and the GitHub Release; the release body links `CHANGELOG.md`.
 
 SemVer: new tools/params or additive capabilities → minor; behavior changes to defaults are called out in the changelog `Changed` section.
 
@@ -274,6 +277,18 @@ Each of these cost time to find. Dates and numbers are from one Linux x86_64 clo
 - **The Docker test job needs the test matrix.** One red test job skips it, so a skipped Docker job is not evidence about the image.
 - **The stderr feature summary uses the caller's arguments, not the effective settings.** `geoip: disabled` appears whenever `geoip` was omitted, although GeoIP is on by default, and `WebRTC: blocked` is missing when blocking is only the default. Do not read launch settings from that line.
 - **A test that passed locally in a slow container can fail in CI and the reverse.** The auto-click case passed a full local run and failed on one of four CI jobs. Repeat a timing-sensitive case several times before calling it stable.
+
+### Release gotchas
+
+Learned releasing 2.7.0 to 2.7.2, which took three tags for one ClawHub problem.
+
+- **A tag runs the workflow file as it was at that commit.** Fixing `ci.yml` on `main` does not change an existing tag's run, and re-running its failed job uses the old file. Moving a tag is not an option: npm refuses to republish an existing version and the tag is already public.
+- **Publish jobs are not atomic.** NPM and Docker publish independently of ClawHub, and `Create Release` needs all three. A ClawHub failure leaves a version on npm and Docker with no ClawHub bundle and no GitHub Release. The only repair is a new patch version, so a failure here costs a release number. 2.7.0 and 2.7.1 are in that state.
+- **`clawhub@0.27.0` needs exactly one bundle manifest.** `.codex-plugin/plugin.json` or `.claude-plugin/plugin.json` counts; `openclaw.plugin.json` does not. Staging both plugin manifests fails, staging only `openclaw.plugin.json` fails (zero), and one plugin manifest plus `openclaw.plugin.json` passes. The error text is the same for both failures: `bundle-plugin requires exactly one supported bundle manifest`. The CLI is pinned in `ci.yml`; test any bump with the dry-run first. 2.6.0 published three manifests only because its unpinned CLI predated this check.
+- **Do not trust a fix you have not dry-run.** The first fix (#46) was reasoned from the error text and was wrong; the second was verified with `--dry-run` and worked.
+- **Prerelease checks take 15 minutes or more.** The test matrix takes about 5 minutes and the Docker job about 10 more after it. `gh pr checks <n> --watch` ends when checks finish; the Docker job is the last to report. A tag run takes a similar time, and `gh run list` can return no run for a few seconds after the push.
+- **Generated files are not release files.** `plugins/camoufox/reports/plugin-inspector-report.json` carries the version but is produced by tooling and is not checked by `tests/check_release_versions.mjs`. Leave it.
+- **Dependabot PRs can be superseded.** A release branch that already bumps the same dependency makes the open Dependabot PR obsolete; close it with a comment rather than merging both.
 
 ### Dependencies
 
