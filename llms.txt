@@ -34,7 +34,7 @@ Tool names vary depending on your host:
 - **Hermes**: `mcp_camoufox_browse` (single underscore, `mcp_<server>_<tool>`)
 - **OpenClaw**: `camoufox__browse` (double underscore)
 - **Codex**: `camoufox:browse` (colon)
-- **Claude Code**: `mcp__camoufox__browse` (double underscore)
+- **Claude Code**: `mcp__camoufox__browse` (double underscore) when added with `claude mcp add camoufox`; a plugin install may namespace the server name, so use the name your tool list shows
 - **Raw MCP**: `browse`, `browse_snapshot`, `camoufox_status`, etc.
 
 Confirm the exact name in your host's tool list before calling.

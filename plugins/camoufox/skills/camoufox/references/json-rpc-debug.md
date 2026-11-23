@@ -85,7 +85,7 @@ NODESCRIPT
 Use Node >=22.15 for repository builds, including the optional launcher for its TypeScript declarations:
 
 ```bash
-npm install --include=optional
+npm ci --include=optional
 npm run build
 npm run fetch:camoufox
 npm run doctor
