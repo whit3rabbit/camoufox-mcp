@@ -7,7 +7,7 @@ The default remains Camoufox 152.0.4-beta.28 with `camoufox-js` 0.12.0 and `play
 Compatibility mode requires Node.js 22.15 or higher and the optional `camoufox` launcher. The published default runtime supports Node.js 22.0 or higher without that launcher. Building this repository requires Node.js 22.15 or higher and the optional launcher for its TypeScript declarations. From a repository checkout, install optional dependencies and supporting assets, then use the same environment when starting the server:
 
 ```bash
-npm install --include=optional
+npm ci --include=optional
 npm run build
 CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npm run fetch:camoufox
 CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npm run doctor
@@ -17,13 +17,13 @@ CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npm start
 The public bootstrap commands were added in release 2.6.0. From a checkout, use the commands above. An npx install can fetch and verify compatibility mode without locating its npm cache:
 
 ```bash
-CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.0 camoufox-mcp-fetch
-CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.0 camoufox-mcp-doctor
+CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-fetch
+CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-doctor
 ```
 
 Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor` directly. Add `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` to your MCP host's server environment so it launches the matching mode.
 
-The newer browser uses the official `camoufox` 0.5.9 launcher, the renamed successor of `@camoufox/camoufox`, and its default fingerprint model. If npm skipped optional dependencies, use Node.js 22.15 or higher and run `npm install --include=optional` before enabling compatibility mode. The server's direct `playwright-core` pin stays at 1.59.0. The installer prepares the fingerprint model and geolocation database and verifies the uBlock Origin addon bundled with the browser before launch. The launcher keeps its fingerprint model and GeoIP databases in its own cache directory (`~/.cache/camoufox` on Linux, following `XDG_CACHE_HOME`; `~/Library/Caches/camoufox` on macOS), which `CAMOUFOX_INSTALL_DIR` does not move. A default-mode browser install replaces that directory, so rerun the compatibility fetch afterwards.
+The newer browser uses the official `camoufox` 0.5.9 launcher, the renamed successor of `@camoufox/camoufox`, and its default fingerprint model. If npm skipped optional dependencies, use Node.js 22.15 or higher and run `npm ci --include=optional` before enabling compatibility mode. The server's direct `playwright-core` pin stays at 1.59.0. The installer prepares the fingerprint model and geolocation database and verifies the uBlock Origin addon bundled with the browser before launch. The launcher keeps its fingerprint model and GeoIP databases in its own cache directory (`~/.cache/camoufox` on Linux, following `XDG_CACHE_HOME`; `~/Library/Caches/camoufox` on macOS), which `CAMOUFOX_INSTALL_DIR` does not move. A default-mode browser install replaces that directory, so rerun the compatibility fetch afterwards.
 
 Without an explicit `CAMOUFOX_INSTALL_DIR`, compatibility mode uses a separate sibling cache named `camoufox-compatibility`. For example, macOS uses `~/Library/Caches/camoufox-compatibility`; on Windows the sibling is `%LOCALAPPDATA%\\camoufox\\camoufox\\Cache-compatibility`. Set `CAMOUFOX_INSTALL_DIR` on both installation and startup to choose another directory. Unset the compatibility flag to return to the default browser.
 

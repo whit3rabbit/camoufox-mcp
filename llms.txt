@@ -6,7 +6,7 @@
 
 The MCP server works on every host via `npx -y camoufox-mcp-server@latest`. 
 
-> **Browser setup:** Status and launch preflight never download the browser. From a checkout, use `npm run fetch:camoufox`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.0 camoufox-mcp-fetch` or the same command with `camoufox-mcp-doctor`. Avoid `camoufox-js fetch`, whose release selection can install a build that bypasses page WebSocket interception.
+> **Browser setup:** Status and launch preflight never download the browser. From a checkout, use `npm run fetch:camoufox`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-fetch` or the same command with `camoufox-mcp-doctor`. Avoid `camoufox-js fetch`, whose release selection can install a build that bypasses page WebSocket interception.
 > 
 > **Disk space:** Fetching needs room for the archive, extracted browser, and supporting assets; requirements vary by platform and build. Check the install and OS temporary filesystems. Inspect installer scratch directories and confirm each is abandoned and unused by a live installer before removing that exact directory, then retry the pinned fetch.
 

@@ -16,6 +16,27 @@ for (const path of [
   assert.equal(readJson(path).version, version, `${path} version must match package.json`);
 }
 
+// Pins drift silently otherwise: 2.7.2 shipped with docs still naming 2.7.0, and the
+// plugin bundle would run whatever "latest" is on npm with unsafe options enabled.
+const mcpArgs = readJson("plugins/camoufox/.mcp.json").mcpServers?.camoufox?.args ?? [];
+assert.ok(
+  mcpArgs.includes(`camoufox-mcp-server@${version}`),
+  "plugins/camoufox/.mcp.json must pin camoufox-mcp-server to the release version",
+);
+for (const path of [
+  "README.md",
+  "AGENTS.md",
+  "llms.txt",
+  "docs/configuration.md",
+  "docs/browser-compatibility.md",
+  "docs/troubleshooting.md",
+  "plugins/camoufox/skills/camoufox/SKILL.md",
+]) {
+  for (const [, pinned] of readFileSync(new URL(path, root), "utf8").matchAll(/camoufox-mcp-server@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)/g)) {
+    assert.equal(pinned, version, `${path} pins camoufox-mcp-server@${pinned}; refresh it to ${version}`);
+  }
+}
+
 const source = readFileSync(new URL("src/config.ts", root), "utf8");
 const serverVersion = source.match(/export const SERVER_VERSION\s*=\s*["']([^"']+)["']/)?.[1];
 assert.equal(serverVersion, version, "src/config.ts SERVER_VERSION must match package.json");

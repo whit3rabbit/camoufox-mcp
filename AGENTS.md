@@ -17,7 +17,7 @@ This is a TypeScript-based MCP (Model Context Protocol) server that provides bro
 
 ### Development
 
-Repository builds require Node >=22.15 and the optional launcher installed with `npm install --include=optional` for its TypeScript declarations. The published default runtime supports Node >=22.0 without that launcher.
+Repository builds require Node >=22.15 and the optional launcher installed with `npm ci --include=optional` for its TypeScript declarations. The published default runtime supports Node >=22.0 without that launcher.
 
 - `npm run build` - Clean and compile TypeScript to dist/
 - `npm run dev` - Watch mode for TypeScript compilation
@@ -25,7 +25,7 @@ Repository builds require Node >=22.15 and the optional launcher installed with 
 - `npm run lint` - Run ESLint checks via package script (or `npx eslint src/`)
 - `npm run fetch:camoufox` - Download/fetch the Camoufox browser binaries
 - `npm run doctor` - Run preflight sanity/diagnostic checks on Node, playwright-core, and cached browser versions
-- Public package commands: `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. Global installs of 2.6.0 expose them directly. Use `npx --yes --package camoufox-mcp-server@2.7.0 <command>` for npx installs. Preserve the server's compatibility flag and install-directory environment for both commands.
+- Public package commands: `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. Global installs of 2.6.0 expose them directly. Use `npx --yes --package camoufox-mcp-server@2.7.2 <command>` for npx installs. Preserve the server's compatibility flag and install-directory environment for both commands.
 - `npm test` - Build and run Python test client locally (shortcut for `npm run test:local`)
 - `npm run test:unit` - Build and run deterministic policy, sequence, snapshot, browser, and SQLite unit tests
 - `npm run test:local` - Build and run Python test client locally against the local server
@@ -89,7 +89,7 @@ For an authorized manual recovery, publish by rerunning the same `clawhub packag
 ## Dependency & Browser Pinning
 
 - Default triple (prior 64/64 local browser-suite cases, macOS arm64; focused installer/policy checks also passed): `camoufox-js` 0.12.0 + `playwright-core` 1.59.0 + browser binary 152.0.4-beta.28. Run `npm run doctor` to verify the selected build and a real `browse`. This build predates world isolation and already runs automation in the page world. It is the default pin, not the newest upstream release. Use the matching CI run for evidence after subsequent fixes.
-- Opt-in compatibility mode (74/74 local browser-suite cases on Linux x86_64 in a container, 2026-11-21; other platforms untested on this pin): `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` selects 158.0.1-beta.41 and the official `camoufox` 0.5.9 launcher (the renamed successor of `@camoufox/camoufox`) with its default fingerprint model. The launcher keeps its fingerprint model and GeoIP databases in its own cache directory (`~/.cache/camoufox` on Linux, following `XDG_CACHE_HOME`; `~/Library/Caches/camoufox` on macOS), which `CAMOUFOX_INSTALL_DIR` does not move. A default-mode browser install replaces that directory, so rerun the compatibility fetch afterwards. Node >=22.15 and the optional launcher are required. Keep its exact pin in `optionalDependencies` so published default installs preserve Node >=22.0 support. Use `npm install --include=optional` on a compatible Node version before enabling the mode. `disableWorldIsolation: true` restores page/iframe WebSocket interception but exposes automation JavaScript to websites. Dedicated-worker WebSockets evade routing in both modes. Keep it opt-in; see [browser compatibility](docs/browser-compatibility.md) for sources, setup, and validation status. Set the same environment for `fetch:camoufox`, doctor, and the MCP server.
+- Opt-in compatibility mode (74/74 local browser-suite cases on Linux x86_64 in a container, 2026-11-21; other platforms untested on this pin): `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` selects 158.0.1-beta.41 and the official `camoufox` 0.5.9 launcher (the renamed successor of `@camoufox/camoufox`) with its default fingerprint model. The launcher keeps its fingerprint model and GeoIP databases in its own cache directory (`~/.cache/camoufox` on Linux, following `XDG_CACHE_HOME`; `~/Library/Caches/camoufox` on macOS), which `CAMOUFOX_INSTALL_DIR` does not move. A default-mode browser install replaces that directory, so rerun the compatibility fetch afterwards. Node >=22.15 and the optional launcher are required. Keep its exact pin in `optionalDependencies` so published default installs preserve Node >=22.0 support. Use `npm ci --include=optional` on a compatible Node version before enabling the mode. `disableWorldIsolation: true` restores page/iframe WebSocket interception but exposes automation JavaScript to websites. Dedicated-worker WebSockets evade routing in both modes. Keep it opt-in; see [browser compatibility](docs/browser-compatibility.md) for sources, setup, and validation status. Set the same environment for `fetch:camoufox`, doctor, and the MCP server.
 - `browser-builds.json` is the shared source for browser versions, launcher versions, and archive SHA-256 digests. When changing a browser pin, update all six official platform digests. Runtime preflight rejects a build that differs from the selected mode before launch. Installer and doctor read the same manifest.
 - **`playwright-core` MUST be a direct pinned dependency, not just an `overrides` entry.** npm `overrides` only bind the root project, so they do NOT pin `playwright-core` when this package is installed as a dependency (`npx camoufox-mcp-server@latest`, global install, or as someone else's dep). Without a direct pin, `camoufox-js`'s peer `playwright-core: *` floats and can break the Camoufox Juggler. Keep both: the direct `dependencies` pin holds every install path; the `overrides` entry dedupes the transitive copy.
 - Keep Playwright 1.59.0 until a newer version passes the full suite in the selected mode. Earlier probes found 1.60.0 broke the delayed private-navigation guard (`TypeError: Cannot read properties of undefined (reading 'url')`) and 1.61.0 sent an `isMobile` viewport option rejected by the 150 browser build. Those results do not establish compatibility with later browser builds. Re-run screenshot, navigation, and WebSocket guards before changing either pin.
@@ -114,12 +114,11 @@ The version string lives in seven files and **must stay in sync** (the test suit
 - `plugins/camoufox/openclaw.plugin.json` (`version`)
 
 Release steps:
-1. Bump all seven version strings and both root `package-lock.json` version records to the new version. Run `node tests/check_release_versions.mjs`.
+1. Bump all seven version strings and both root `package-lock.json` version records to the new version. Also refresh every pinned `camoufox-mcp-server@x.y.z` in `README.md`, `AGENTS.md`, `llms.txt`, `docs/`, `plugins/camoufox/skills/camoufox/SKILL.md` and `plugins/camoufox/.mcp.json` (`grep -rn 'camoufox-mcp-server@' README.md AGENTS.md llms.txt docs plugins/camoufox`). Leave "added in 2.6.0" style mentions alone; they record when a feature shipped. Run `node tests/check_release_versions.mjs`, which fails on a stale pin.
 2. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [x.y.z] - YYYY-MM-DD` heading; leave a fresh empty `[Unreleased]`.
 3. Run `npm run test:all` (or at least `npm run build` + `npm run test:unit`) and commit.
 4. Run the ClawHub staging dry-run from the ClawHub section and confirm it lists the runtime files and no manifest error. Do this before tagging: a tag cannot be repaired (see Release gotchas).
-5. Refresh the pinned npx examples to the new version: `grep -rn 'camoufox-mcp-server@' README.md AGENTS.md llms.txt docs plugins/camoufox/skills`. Leave "added in 2.6.0" style mentions alone; they record when a feature shipped.
-6. Tag `vX.Y.Z` and push the tag when release publication is authorized. CI handles NPM, Docker, ClawHub, and the GitHub Release; the release body links `CHANGELOG.md`.
+5. Tag `vX.Y.Z` and push the tag when release publication is authorized. CI handles NPM, Docker, ClawHub, and the GitHub Release; the release body links `CHANGELOG.md`.
 
 SemVer: new tools/params or additive capabilities → minor; behavior changes to defaults are called out in the changelog `Changed` section.
 
@@ -289,6 +288,12 @@ Learned releasing 2.7.0 to 2.7.2, which took three tags for one ClawHub problem.
 - **Prerelease checks take 15 minutes or more.** The test matrix takes about 5 minutes and the Docker job about 10 more after it. `gh pr checks <n> --watch` ends when checks finish; the Docker job is the last to report. A tag run takes a similar time, and `gh run list` can return no run for a few seconds after the push.
 - **Generated files are not release files.** `plugins/camoufox/reports/plugin-inspector-report.json` carries the version but is produced by tooling and is not checked by `tests/check_release_versions.mjs`. Leave it.
 - **Dependabot PRs can be superseded.** A release branch that already bumps the same dependency makes the open Dependabot PR obsolete; close it with a comment rather than merging both.
+
+### Skill and plugin content
+
+- **Hermes' skill scanner blocks the whole skill on a DANGEROUS verdict, and `--force` cannot override it.** It matches patterns in prose and code fences alike. `rm -rf ~/.npm/_npx` was CRITICAL; bare `npm install` was MEDIUM (supply_chain). Never put a destructive command in a skill: say what to delete and let the user do it, or pin an explicit server version so npx makes a fresh cache entry. Use `npm ci --include=optional` for checkout setup. Check before publishing: `cd ~/.hermes/hermes-agent && venv/bin/python -I -c "from pathlib import Path; from tools.skills_guard import scan_skill, format_scan_report; print(format_scan_report(scan_skill(Path('<repo>/plugins/camoufox/skills/camoufox'), source='github')))"` must say SAFE.
+- **`plugins/camoufox/.mcp.json` is pinned to the release version, not `@latest`.** It also sets `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` so the skill can tune hard sites, so a floating tag would run unreviewed code with unsafe options on. `tests/check_release_versions.mjs` fails when this pin, or any `camoufox-mcp-server@x.y.z` in the docs and skill, differs from `package.json`. Bare `npx -y camoufox-mcp-server@latest` in user-facing install commands is unaffected.
+- **`plugins/camoufox/skills/camoufox-workspace/` is gitignored scratch** and drifts from the real skill. Never edit it expecting the change to ship, and do not scan it as the source of truth.
 
 ### Dependencies
 
