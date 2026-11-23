@@ -28,7 +28,7 @@ This skill does not start the server. Confirm an MCP server named `camoufox` is 
 
 Bare `npx -y camoufox-mcp-server@latest` remains safe by default unless the host config adds that env var.
 
-On a fresh machine, install the Camoufox binary once. From a repository checkout, run `npm run fetch:camoufox`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.0 camoufox-mcp-fetch` (replace the last command with `camoufox-mcp-doctor` for diagnostics). Use the same environment as the MCP server. Avoid `camoufox-js fetch`: its updater can select a build that bypasses WebSocket interception. Status and launch preflight inspect the cache without downloading.
+On a fresh machine, install the Camoufox binary once. From a repository checkout, run `npm run fetch:camoufox`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-fetch` (replace the last command with `camoufox-mcp-doctor` for diagnostics). Use the same environment as the MCP server. Avoid `camoufox-js fetch`: its updater can select a build that bypasses WebSocket interception. Status and launch preflight inspect the cache without downloading.
 
 ## Bring the Server Up (operator / local checkout)
 
@@ -37,7 +37,7 @@ never downloads the browser, so a local checkout or a first run needs the
 browser binary fetched and a preflight before you trust it:
 
 ```bash
-npm install --include=optional # repository builds require Node >=22.15
+npm ci --include=optional # lockfile-pinned install; repository builds require Node >=22.15
 npm run build          # compile dist/
 npm run fetch:camoufox # download the Camoufox browser binary
 npm run doctor         # preflight: pins, cached binary, live browse smoke test
@@ -63,7 +63,7 @@ This mode disables the newer browser's world isolation to restore page/iframe We
 Hosts expose MCP tool names differently. Use whatever the host lists; common forms:
 
 - Hermes style: `mcp_camoufox_browse` (single underscore, `mcp_<server>_<tool>`; some setups show the double `mcp__camoufox__browse`)
-- Claude Code style: `mcp__camoufox__browse`
+- Claude Code style: `mcp__camoufox__browse` for a manual `claude mcp add camoufox`; a plugin install may namespace the server name, so use whatever the tool list shows
 - OpenClaw bundle style: `camoufox__browse`
 - Raw MCP name: `browse`
 
@@ -305,7 +305,7 @@ Read `references/json-rpc-debug.md` when the host hasn't registered the server o
 
 ## Host Setup Failures
 
-Native module errors such as `better-sqlite3` compiled for the wrong Node.js version (`NODE_MODULE_VERSION` mismatch) come from this server's own dependency tree: `camoufox-js` pulls in `better-sqlite3`, whose native binary is tied to the Node version that ran the install. On Node 22.15+ the server (2.1.6+) avoids the native module entirely by using the built-in `node:sqlite`, so first make sure the gateway launches an up-to-date server version. If the error persists on an older Node, remember that `npx` keeps its own dependency copy under `~/.npm/_npx/<hash>/node_modules` — rebuilding another checkout does not fix it; clear the npx cache (`rm -rf ~/.npm/_npx`) using the same Node version the gateway spawns, then restart the gateway because the old MCP process keeps the old native module loaded. On a local checkout, `npm run doctor` surfaces most launch-blocking problems before a `browse` fails.
+Native module errors such as `better-sqlite3` compiled for the wrong Node.js version (`NODE_MODULE_VERSION` mismatch) come from this server's own dependency tree: `camoufox-js` pulls in `better-sqlite3`, whose native binary is tied to the Node version that ran the install. On Node 22.15+ the server (2.1.6+) avoids the native module entirely by using the built-in `node:sqlite`, so first make sure the gateway launches an up-to-date server version. If the error persists on an older Node, remember that `npx` keeps its own dependency copy under `~/.npm/_npx/<hash>/node_modules` — rebuilding another checkout does not fix it; force a fresh npx dependency copy by pinning an explicit server version in the gateway's npx args (a new version spec gets a new cache entry), or have the user delete the `_npx` folder inside their npm cache directory (`npm config get cache`) by hand, using the same Node version the gateway spawns, then restart the gateway because the old MCP process keeps the old native module loaded. On a local checkout, `npm run doctor` surfaces most launch-blocking problems before a `browse` fails.
 
 If the host blocks direct config edits, do not patch protected files. Use the host CLI or tell the operator exactly what to add. For Hermes, this verified command registers Camoufox with unsafe browser options enabled:
 

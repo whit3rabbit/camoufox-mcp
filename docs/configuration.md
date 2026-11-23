@@ -16,7 +16,7 @@ The bundled MCP server config enables unsafe browser options so the skill can us
   "mcpServers": {
     "camoufox": {
       "command": "npx",
-      "args": ["-y", "camoufox-mcp-server@latest"],
+      "args": ["-y", "camoufox-mcp-server@2.7.3"],
       "env": {
         "CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS": "1"
       }
@@ -25,7 +25,7 @@ The bundled MCP server config enables unsafe browser options so the skill can us
 }
 ```
 
-Bare `npx -y camoufox-mcp-server@latest` remains safe by default and does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. After installing the bundle, verify the active state with `initialize.result.capabilities.extensions["camoufox-mcp"].policy.unsafeOptionsAllowed` or `camoufox_status.unsafeOptionsAllowed` before sending unsafe options.
+The bundle pins the release version so a new npm publish cannot change what runs with unsafe options on. Bare `npx -y camoufox-mcp-server@latest` remains safe by default and does not set `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS`. After installing the bundle, verify the active state with `initialize.result.capabilities.extensions["camoufox-mcp"].policy.unsafeOptionsAllowed` or `camoufox_status.unsafeOptionsAllowed` before sending unsafe options.
 
 ### Claude Code Plugin
 
@@ -99,7 +99,7 @@ Hermes skills do not automatically install MCP servers, so configure the `camouf
 
 > **Hermes TTY Gotcha:** `hermes mcp add` interactively prompts `"Enable all 17 tools? [Y/n/select]"`. On a non-TTY (piped input/scripts), the default response is `"n"` (canceled). You must pipe `Y\n` as shown in the example command above to automatically accept and enable all tools.
 
-On a fresh machine, install the browser once with `npm run fetch:camoufox` from a repository checkout. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.0 camoufox-mcp-fetch`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. Use the same environment as the MCP server. Avoid `camoufox-js fetch`, which can select a build that bypasses page WebSocket interception.
+On a fresh machine, install the browser once with `npm run fetch:camoufox` from a repository checkout. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-fetch`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. Use the same environment as the MCP server. Avoid `camoufox-js fetch`, which can select a build that bypasses page WebSocket interception.
 
 The resulting config should look like this:
 
@@ -115,7 +115,7 @@ mcp_servers:
       CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS: "1"
 ```
 
-For local development, use Node.js >=22.15, copy `plugins/camoufox/skills/camoufox/` into `~/.hermes/skills/camoufox/`, and run `npm install --include=optional && npm run build && npm run fetch:camoufox`. Then run `npm run doctor` to confirm the browser launches before wiring Hermes. Use this shape instead:
+For local development, use Node.js >=22.15, copy `plugins/camoufox/skills/camoufox/` into `~/.hermes/skills/camoufox/`, and run `npm ci --include=optional && npm run build && npm run fetch:camoufox`. Then run `npm run doctor` to confirm the browser launches before wiring Hermes. Use this shape instead:
 
 ```yaml
 mcp_servers:
@@ -168,7 +168,7 @@ Use the Quick Install command above for the published server. Use `--scope proje
 For a repository build, use Node.js 22.15 or higher:
 
 ```bash
-npm install --include=optional
+npm ci --include=optional
 npm run build
 npm run fetch:camoufox
 claude mcp add --scope project camoufox-dev -- node dist/index.js
@@ -238,7 +238,7 @@ args = ["dist/index.js"]
 cwd = "/absolute/path/to/camoufox-mcp"
 ```
 
-Repository builds require Node.js 22.15 or higher. Run `npm install --include=optional`, `npm run build`, and `npm run fetch:camoufox` before starting Codex. In the Codex TUI, use `/mcp` to confirm the server is active.
+Repository builds require Node.js 22.15 or higher. Run `npm ci --include=optional`, `npm run build`, and `npm run fetch:camoufox` before starting Codex. In the Codex TUI, use `/mcp` to confirm the server is active.
 
 Reference: [Codex MCP docs](https://developers.openai.com/codex/mcp).
 </details>
@@ -379,8 +379,8 @@ npm install camoufox-mcp-server@latest
 Release 2.6.0 added public browser setup commands. From a repository checkout, `npm run fetch:camoufox` and `npm run doctor` also work. Otherwise run:
 
 ```bash
-npx --yes --package camoufox-mcp-server@2.7.0 camoufox-mcp-fetch
-npx --yes --package camoufox-mcp-server@2.7.0 camoufox-mcp-doctor
+npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-fetch
+npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-doctor
 ```
 
 Global installs expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor` directly. Compatibility mode requires Node.js 22.15 or higher and optional dependencies installed. Use `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` for setup, doctor, and the MCP server; see [browser compatibility](browser-compatibility.md) for the selected build, cache directory, and WebSocket limits.

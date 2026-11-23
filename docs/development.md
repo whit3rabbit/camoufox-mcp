@@ -10,7 +10,7 @@ git clone https://github.com/whit3rabbit/camoufox-mcp.git
 cd camoufox-mcp
 
 # Install dependencies
-npm install --include=optional
+npm ci --include=optional
 
 # Build the TypeScript code
 npm run build
@@ -27,7 +27,7 @@ npm start
 Build before starting an MCP client:
 
 ```bash
-npm install --include=optional
+npm ci --include=optional
 npm run build
 ```
 

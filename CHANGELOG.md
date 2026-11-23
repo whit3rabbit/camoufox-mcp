@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.3] - 2026-11-23
+
+### Changed
+
+- The plugin bundle's MCP config (`plugins/camoufox/.mcp.json`) now pins `camoufox-mcp-server` to the release version instead of `@latest`. The bundle sets `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` by design (the skill uses `firefox_user_prefs`, `args`, and `exclude_addons`), so a floating tag meant any later npm publish would run unreviewed with unsafe options enabled. Unsafe options stay on in the bundle. Bare `npx -y camoufox-mcp-server@latest` is unchanged and remains safe by default.
+- Checkout setup docs and the skill use `npm ci --include=optional` (lockfile-pinned) instead of `npm install --include=optional`.
+
+### Fixed
+
+- Skill: removed the `rm -rf ~/.npm/_npx` instruction and the bare `npm install` examples. Hermes' skill scanner rated the skill DANGEROUS (CRITICAL destructive command, MEDIUM supply-chain) and blocked installation, and `--force` cannot override that verdict. The npx cache guidance now says to pin an explicit server version or delete the `_npx` folder by hand.
+- Docs and skill examples still named `camoufox-mcp-server@2.7.0`; refreshed to the current release.
+- Skill and `llms.txt`: noted that a plugin install may namespace the Claude Code tool name (for example `mcp__plugin_camoufox_camoufox__browse`).
+
+### Internal
+
+- `tests/check_release_versions.mjs` now fails when the plugin bundle pin or any `camoufox-mcp-server@x.y.z` example in the docs or skill differs from `package.json`. Release step 1 now includes refreshing those pins.
+
 ## [2.7.2] - 2026-11-21
 
 ### Fixed
