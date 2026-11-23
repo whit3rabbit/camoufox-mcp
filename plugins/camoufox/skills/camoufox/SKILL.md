@@ -28,7 +28,7 @@ This skill does not start the server. Confirm an MCP server named `camoufox` is 
 
 Bare `npx -y camoufox-mcp-server@latest` remains safe by default unless the host config adds that env var.
 
-On a fresh machine, install the Camoufox binary once. From a repository checkout, run `npm run fetch:camoufox`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-fetch` (replace the last command with `camoufox-mcp-doctor` for diagnostics). Use the same environment as the MCP server. Avoid `camoufox-js fetch`: its updater can select a build that bypasses WebSocket interception. Status and launch preflight inspect the cache without downloading.
+On a fresh machine, install the Camoufox binary once. From a repository checkout, run `npm run fetch:camoufox`. Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. npx installs can use `npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-fetch` (replace the last command with `camoufox-mcp-doctor` for diagnostics). Use the same environment as the MCP server. Avoid `camoufox-js fetch`: its updater can select a build that bypasses WebSocket interception. Status and launch preflight inspect the cache without downloading.
 
 ## Bring the Server Up (operator / local checkout)
 

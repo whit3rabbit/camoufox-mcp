@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.3] - 2026-11-23
+
 ### Changed
 
 - The plugin bundle's MCP config (`plugins/camoufox/.mcp.json`) now pins `camoufox-mcp-server` to the release version instead of `@latest`. The bundle sets `CAMOUFOX_MCP_ALLOW_UNSAFE_OPTIONS=1` by design (the skill uses `firefox_user_prefs`, `args`, and `exclude_addons`), so a floating tag meant any later npm publish would run unreviewed with unsafe options enabled. Unsafe options stay on in the bundle. Bare `npx -y camoufox-mcp-server@latest` is unchanged and remains safe by default.

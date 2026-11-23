@@ -25,7 +25,7 @@ Repository builds require Node >=22.15 and the optional launcher installed with 
 - `npm run lint` - Run ESLint checks via package script (or `npx eslint src/`)
 - `npm run fetch:camoufox` - Download/fetch the Camoufox browser binaries
 - `npm run doctor` - Run preflight sanity/diagnostic checks on Node, playwright-core, and cached browser versions
-- Public package commands: `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. Global installs of 2.6.0 expose them directly. Use `npx --yes --package camoufox-mcp-server@2.7.2 <command>` for npx installs. Preserve the server's compatibility flag and install-directory environment for both commands.
+- Public package commands: `camoufox-mcp-fetch` and `camoufox-mcp-doctor`. Global installs of 2.6.0 expose them directly. Use `npx --yes --package camoufox-mcp-server@2.7.3 <command>` for npx installs. Preserve the server's compatibility flag and install-directory environment for both commands.
 - `npm test` - Build and run Python test client locally (shortcut for `npm run test:local`)
 - `npm run test:unit` - Build and run deterministic policy, sequence, snapshot, browser, and SQLite unit tests
 - `npm run test:local` - Build and run Python test client locally against the local server

@@ -8,7 +8,7 @@ issues below in one command.
 ### Common Issues
 
 1. **"Camoufox browser not found" or `browserAvailable: false` after fetch**
-   - From a checkout, run `npm run fetch:camoufox`. Global installs of 2.6.0 provide `camoufox-mcp-fetch`. Use `npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-fetch` for npx installs. Avoid `camoufox-js fetch`: the package's pinned installer selects a tagged, checksummed build.
+   - From a checkout, run `npm run fetch:camoufox`. Global installs of 2.6.0 provide `camoufox-mcp-fetch`. Use `npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-fetch` for npx installs. Avoid `camoufox-js fetch`: the package's pinned installer selects a tagged, checksummed build.
    - For Docker, the browser is pre-installed.
    - If the browser is downloaded but status still reports it is missing:
      - **Environment mismatch:** Status inspects the cache on each call. Use the same `CAMOUFOX_INSTALL_DIR` and `CAMOUFOX_MCP_BROWSER_COMPATIBILITY` values for fetch, doctor, and the host's MCP process. Restart the host after changing those environment values.

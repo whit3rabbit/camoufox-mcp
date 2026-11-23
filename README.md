@@ -110,7 +110,7 @@ First `browse` on a fresh machine needs the browser binary once; download and st
 requirements vary by platform and build. If a call
 reports it is missing, run the pinned fetch script and retry: `npm run fetch:camoufox`
 (repo checkout). npx installs can use
-`npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-fetch`.
+`npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-fetch`.
 Global installs of 2.6.0 provide `camoufox-mcp-fetch` and `camoufox-mcp-doctor`.
 Do not use `camoufox-js fetch`: its release selection can install a build that
 bypasses page WebSocket interception.

@@ -17,8 +17,8 @@ CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npm start
 The public bootstrap commands were added in release 2.6.0. From a checkout, use the commands above. An npx install can fetch and verify compatibility mode without locating its npm cache:
 
 ```bash
-CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-fetch
-CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.2 camoufox-mcp-doctor
+CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-fetch
+CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1 npx --yes --package camoufox-mcp-server@2.7.3 camoufox-mcp-doctor
 ```
 
 Global installs of 2.6.0 expose `camoufox-mcp-fetch` and `camoufox-mcp-doctor` directly. Add `CAMOUFOX_MCP_BROWSER_COMPATIBILITY=1` to your MCP host's server environment so it launches the matching mode.
